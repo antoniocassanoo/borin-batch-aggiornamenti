@@ -17,9 +17,12 @@ Si può controllare anche a mano, da **Info › Cerca aggiornamenti**.
   <img alt="Foto, scontorno AI, tela 5120 × 5120 con l'oggetto al 60 %, ombra, colore BORIN, export" src="immagini/flusso-chiaro.png">
 </picture>
 
-## Che cosa c'è in ogni release
+## Dove sono i file
 
-| File | A cosa serve |
+- **`com.borin.batch/`**, nell'elenco qui sopra: il pannello dell'ultima versione, file per file. È lo stesso contenuto dello zip di aggiornamento, senza i font Gotham.
+- **Releases**, nella colonna a destra: una per versione, con i due file che i pannelli scaricano.
+
+| File della release | A cosa serve |
 |---|---|
 | `BORIN-Batch-<versione>-aggiornamento.zip` | il pannello senza i font, per aggiornare quello già installato |
 | `aggiornamento.json` | numero di versione, impronta sha256 dello zip, Photoshop minimo (2022, cioè la 23.0) |
