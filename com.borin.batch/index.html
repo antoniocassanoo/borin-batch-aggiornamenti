@@ -42,26 +42,28 @@
 <section id="s-lavoro" class="scheda attiva" role="tabpanel">
  <div class="colonna">
   <div id="novita" class="ok-box" hidden></div>
+  <div id="novitaApp" class="ok-box" hidden></div>
   <div id="ripresa" class="avviso" hidden></div>
 
   <article class="blocco">
-    <h2><span class="passo">1</span>Cartelle</h2>
+    <h2><span class="passo">1</span>Immagini</h2>
     <div class="seg" id="sorgente" style="margin-bottom:8px">
       <button data-v="CARTELLA" aria-pressed="true">Una cartella</button>
-      <button data-v="DOCUMENTI" aria-pressed="false">Documenti aperti</button>
+      <button data-v="FILE" aria-pressed="false">Alcuni file</button>
+      <button data-v="DOCUMENTI" aria-pressed="false">Aperte in Photoshop</button>
     </div>
     <div id="perCartella">
-      <span class="etichetta">Immagini da elaborare</span>
       <div class="percorso"><span class="via vuota" id="viaIngresso">Nessuna cartella scelta</span><button class="pulsante" id="bIngresso">Scegli…</button></div>
-      <label class="spunta"><input type="checkbox" data-k="avvio.sottocartelle"><span>Anche le sottocartelle</span></label>
+    </div>
+    <div id="perFile" hidden>
+      <div class="percorso"><span class="via vuota" id="viaFile">Nessun file scelto</span><button class="pulsante leggero" id="bSvuotaFile" hidden>Svuota</button><button class="pulsante" id="bAggiungiFile">Aggiungi…</button></div>
     </div>
     <div id="perDocumenti" hidden>
       <p class="nota" style="margin-top:0">Usa le immagini aperte in Photoshop, anche quelle con modifiche non salvate. Le originali restano come sono.</p>
       <button class="pulsante" id="bDocumenti">Aggiorna l'elenco</button>
     </div>
-    <span class="etichetta">Dove salvare</span>
-    <div class="percorso"><span class="via vuota" id="viaUscita">Nessuna cartella scelta</span><button class="pulsante leggero" id="bApriUscita" title="Apri la cartella" hidden>Apri</button><button class="pulsante" id="bUscita">Scegli…</button></div>
-    <p class="nota piccola" id="notaCartelle"></p>
+    <label class="spunta" id="spuntaSotto"><input type="checkbox" data-k="avvio.sottocartelle"><span>Anche le sottocartelle</span></label>
+    <p class="nota piccola" id="notaRilascio">Puoi anche trascinare sul pannello foto e cartelle: una cartella diventa la cartella delle immagini, i file si aggiungono all'elenco.</p>
   </article>
 
   <article class="blocco">
@@ -86,8 +88,30 @@
     <p class="nota piccola">Un clic su un file lo sceglie per la prova. «Previsto» è una stima fatta senza aprire il file: la scelta vera la fa Photoshop all'apertura.</p>
   </article>
 
+  <article class="blocco" id="bloccoUscita">
+    <h2><span class="passo">3</span>Dove salvare</h2>
+    <div class="percorso"><span class="via vuota" id="viaUscita">Nessuna cartella scelta</span><button class="pulsante leggero" id="bApriUscita" title="Apri la cartella" hidden>Apri</button><button class="pulsante" id="bUscita">Scegli…</button></div>
+    <p class="nota piccola" id="notaCartelle"></p>
+    <span class="etichetta">Formati</span>
+    <div class="chip-formati" id="chipFormati">
+      <label class="chip"><input type="checkbox" data-k="export.psd"><span><b>PSD</b><small data-nota="psd"></small></span></label>
+      <label class="chip"><input type="checkbox" data-k="export.jpg"><span><b>JPG</b><small data-nota="jpg"></small></span></label>
+      <label class="chip"><input type="checkbox" data-k="export.png"><span><b>PNG</b><small data-nota="png"></small></span></label>
+      <label class="chip"><input type="checkbox" data-k="export.webp"><span><b>WebP</b><small data-nota="webp"></small></span></label>
+    </div>
+    <span class="etichetta">Come ordinarli</span>
+    <div class="seg" data-k="export.struttura">
+      <button data-v="FORMATO">Per formato</button>
+      <button data-v="PER_PRODOTTO">Per prodotto</button>
+      <button data-v="UNICA">Tutti insieme</button>
+      <button data-v="PRODOTTO">Come il vecchio script</button>
+    </div>
+    <div class="albero" aria-label="Che cosa troverai nella cartella di uscita"></div>
+    <p class="nota piccola">Qualità, misure e sfondo bianco dei formati: <button class="pulsante leggero" id="bVaiExport" style="padding:0 2px">Impostazioni › Export</button></p>
+  </article>
+
   <article class="blocco" id="bloccoProva" hidden>
-    <h2><span class="passo">3</span>Prova <span class="dx" id="provaNome"></span></h2>
+    <h2><span class="passo">4</span>Prova <span class="dx" id="provaNome"></span></h2>
     <div class="confronto">
       <figure><figcaption><span>Prima</span></figcaption><div class="immagine" id="imgPrima"></div></figure>
       <figure><figcaption><span>Dopo</span><button class="pulsante leggero" id="bFondo" style="padding:0 2px">Mostra su bianco</button></figcaption><div class="immagine" id="imgDopo"></div></figure>
@@ -210,6 +234,7 @@
         <div class="gruppo">
           <div class="ombre" data-k="ombra.stile" id="stiliOmbra"></div>
           <div class="riga"><span class="nome">Intensità</span><input type="range" min="0" max="200" step="5" data-k="ombra.intensita"><input type="number" min="0" max="200" step="1" data-k="ombra.intensita"><span class="unita">% (100 = normale)</span></div>
+          <label class="spunta"><input type="checkbox" data-k="ombra.segui"><span>Segue la forma della base<small>Con la base inclinata (prodotto di tre quarti) l'ombra segue gli spigoli; con più pezzi staccati ognuno ha la sua; le parti sottili che pendono (cavi) non contano. Spenta: l'ombra dritta del vecchio script.</small></span></label>
           <label class="spunta"><input type="checkbox" data-k="ombra.unisci"><span>Diffusa e contatto in un solo livello</span></label>
           <p class="nota piccola">L'ombra parte sempre dalla base vera dell'oggetto: puntini, riflessi, livelli nascosti ed effetti di livello non la spostano più.</p>
           <details class="avanzate"><summary>Avanzate</summary>
@@ -247,7 +272,7 @@
     </div>
   </details>
 
-  <details class="sezione" open>
+  <details class="sezione" open id="sezExport">
     <summary>Export <span class="riassunto" id="r-export"></span></summary>
     <div class="corpo">
       <div class="gruppo formati">
@@ -287,12 +312,15 @@
         </div>
       </div>
       <div class="gruppo">
-        <h3>Cartelle di uscita</h3>
+        <h3>Come ordinare i file</h3>
         <div class="seg colonna" data-k="export.struttura">
-          <button data-v="PRODOTTO">Una cartella per prodotto<small>es. Immagini singole cartelle › Armadio inox › JPG › Armadio inox.jpg</small></button>
-          <button data-v="FORMATO">Una cartella per formato<small>es. JPG › Armadio inox.jpg</small></button>
+          <button data-v="FORMATO">Per formato<small>Una cartella per ogni formato: JPG, PNG, PSD, WEBP. Comoda per caricare sul sito.</small></button>
+          <button data-v="PER_PRODOTTO">Per prodotto<small>Una cartella per ogni immagine, con dentro tutti i suoi formati.</small></button>
+          <button data-v="UNICA">Tutti insieme<small>Tutto nella cartella scelta, distinto dall'estensione.</small></button>
+          <button data-v="PRODOTTO">Come il vecchio script<small>Immagini singole cartelle › prodotto › JPG, PNG, PSD, WEB.</small></button>
         </div>
         <label class="spunta" id="spuntaRaccolta"><input type="checkbox" data-k="export.raccoltaWebP"><span>Copia dei WebP anche in «Immagini WEBP»</span></label>
+        <div class="albero" aria-label="Che cosa troverai nella cartella di uscita"></div>
       </div>
       <div class="gruppo">
         <h3>Se un file esiste già</h3>
@@ -369,12 +397,18 @@
   <article class="blocco">
     <h2>Come si usa</h2>
     <ol class="nota" style="padding-left:18px;margin:0">
-      <li>Scegli la cartella delle immagini e quella dove salvare.</li>
+      <li>Scegli la cartella delle immagini, oppure trascina sul pannello foto e cartelle. Poi scegli dove salvare: l'albero mostra che cosa troverai.</li>
       <li>Scegli un preset: «Automatico BORIN» va bene quasi sempre.</li>
       <li>Premi <b>Prova sul primo file</b> e guarda prima e dopo. Un clic su un file dell'elenco lo sceglie per la prova.</li>
       <li>Se va bene, <b>Avvia il batch</b>. Puoi fermarlo: finisce il file in corso e si ferma.</li>
       <li>Se Photoshop si chiude a metà, alla riapertura il pannello propone di riprendere da dove era arrivato.</li>
     </ol>
+  </article>
+  <article class="blocco" id="bloccoApp">
+    <h2>Aprire BORIN Batch come un'app</h2>
+    <p class="nota" style="margin-top:0" id="testoApp"></p>
+    <div class="riga"><button class="pulsante" id="bCreaApp">Crea l'app</button><button class="pulsante leggero" id="bMostraApp" hidden>Mostra</button></div>
+    <p class="nota piccola" id="statoApp"></p>
   </article>
   <article class="blocco">
     <h2>Aggiornamenti</h2>
@@ -396,6 +430,10 @@
     <h2>Che cosa cambia rispetto al v3</h2>
     <ul class="nota" style="padding-left:18px;margin:0">
       <li>L'ombra parte dalla base vera dell'oggetto: puntini, residui dello scontorno, livelli nascosti ed effetti non la spostano più.</li>
+      <li>L'ombra segue la base anche quando è inclinata (prodotto di tre quarti), ogni pezzo staccato ha la sua e un cavo che pende non la porta giù.</li>
+      <li>Foto e cartelle si trascinano sul pannello; si possono elaborare anche solo alcuni file.</li>
+      <li>Le uscite si ordinano per formato, per prodotto, tutte insieme o come il vecchio script, e l'albero mostra prima che cosa uscirà.</li>
+      <li>Si apre come un'app: l'icona «BORIN Batch» apre Photoshop con il pannello già pronto.</li>
       <li>Ogni file viene analizzato da solo: foto, PNG scontornati e PSD nella stessa cartella vanno bene.</li>
       <li>I righelli sono sempre in pixel durante il lavoro: prima un computer impostato in cm spostava l'oggetto.</li>
       <li>Un solo ricampionamento per immagine e scontorno alla risoluzione originale: più nitidezza.</li>
@@ -422,6 +460,10 @@
   </div>
 </footer>
 
+<div id="rilascio" hidden>
+  <div class="zona" data-zona="immagini"><b>Immagini da elaborare</b><span id="rilascioQuanti">Rilascia qui</span><span>Una cartella diventa la cartella delle immagini; i file si aggiungono all'elenco.</span></div>
+  <div class="zona" data-zona="uscita"><b>Dove salvare</b><span id="rilascioUscita">Rilascia qui una cartella</span></div>
+</div>
 <div id="lente" hidden><img alt=""></div>
 <div id="erroreJS" hidden><button title="Chiudi">×</button><span></span></div>
 

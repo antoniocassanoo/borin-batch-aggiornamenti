@@ -13,7 +13,7 @@
     - scontorno alla risoluzione originale, analisi automatica file per file, salvataggi sicuri su file temporaneo. */
 
 $.global.BORIN = (function () {
-    var VERSIONE = "8.0.4";
+    var VERSIONE = "8.1.0";
     var RIF = 5120;                         // lato di riferimento dei valori in px (come nel v3)
     var NOME_ESCLUSI = "Esclusi dal batch (BORIN)";
     var CONTATORE = 0;
@@ -817,11 +817,21 @@ $.global.BORIN = (function () {
     }
 
     // ============================================================ ombra (parametri del v3, proporzionati alla tela)
+    // mD e mC moltiplicano la sfocatura di diffusa e contatto. Nel v3 alle misure normali i limiti min/max non
+    // intervenivano e tutti gli stili avevano la stessa sfocatura: «Premium» non era più morbida della Standard.
+    // La Standard resta identica al v3.
     function stileOmbra(stile) {
-        if (stile === "DELICATA") return {dB: 0.28, dSX: 103, dSY: 11, dO: 12, dBmin: 24, dBmax: 68, cB: 0.10, cSX: 98, cSY: 18, cO: 24, cBmin: 8, cBmax: 26};
-        if (stile === "PREMIUM") return {dB: 0.35, dSX: 104, dSY: 12, dO: 16, dBmin: 26, dBmax: 72, cB: 0.11, cSX: 97, cSY: 18, cO: 30, cBmin: 7, cBmax: 24};
-        if (stile === "CONTATTO") return {dB: 0.26, dSX: 101, dSY: 10, dO: 11, dBmin: 18, dBmax: 52, cB: 0.10, cSX: 98, cSY: 25, cO: 48, cBmin: 5, cBmax: 16};
-        return {dB: 0.32, dSX: 102, dSY: 14, dO: 18, dBmin: 18, dBmax: 58, cB: 0.12, cSX: 98, cSY: 22, cO: 34, cBmin: 6, cBmax: 22};
+        if (stile === "DELICATA") return {dB: 0.28, dSX: 103, dSY: 11, dO: 12, dBmin: 24, dBmax: 68, cB: 0.10, cSX: 98, cSY: 18, cO: 24, cBmin: 8, cBmax: 26, mD: 1.25, mC: 1.15};
+        if (stile === "PREMIUM") return {dB: 0.35, dSX: 104, dSY: 12, dO: 16, dBmin: 26, dBmax: 72, cB: 0.11, cSX: 97, cSY: 18, cO: 30, cBmin: 7, cBmax: 24, mD: 1.35, mC: 1.1};
+        if (stile === "CONTATTO") return {dB: 0.26, dSX: 101, dSY: 10, dO: 11, dBmin: 18, dBmax: 52, cB: 0.10, cSX: 98, cSY: 25, cO: 48, cBmin: 5, cBmax: 16, mD: 0.9, mC: 0.85};
+        return {dB: 0.32, dSX: 102, dSY: 14, dO: 18, dBmin: 18, dBmax: 58, cB: 0.12, cSX: 98, cSY: 22, cO: 34, cBmin: 6, cBmax: 22, mD: 1, mC: 1};
+    }
+    function sfocature(st, B, k) {                         // B: riquadro dell'oggetto intero
+        var dimRif = Math.max(B.w, B.h);
+        return {
+            d: limita(dimRif * 0.010 * st.mD, st.dBmin * k, st.dBmax * k),
+            c: limita(dimRif * 0.0038 * st.mC, st.cBmin * k, st.cBmax * k)
+        };
     }
     function tieniBandaBassa(doc, layer, perc, minPx, maxPx, yFondo) {
         var b = bordi(layer), fondo = (yFondo === undefined) ? b.b : yFondo, alt = fondo - b.t;
@@ -837,16 +847,48 @@ $.global.BORIN = (function () {
     }
     function haPixel(layer) { try { var b = bordi(layer); return b.w > 1 && b.h > 1; } catch (e) { return false; } }
 
+    // Diffusa sotto il contatto, metodo di fusione Moltiplica, unite in un livello se richiesto (come nel v3).
+    function finisciOmbra(doc, d, c, st, f, sf, O, nome) {
+        d.applyGaussianBlur(sf.d);
+        d.blendMode = BlendMode.MULTIPLY;
+        d.opacity = Math.min(100, st.dO * f);
+        if (c && haPixel(c)) {
+            c.applyGaussianBlur(sf.c);
+            c.blendMode = BlendMode.MULTIPLY;
+            c.opacity = Math.min(100, st.cO * f);
+            if (O.unisci) { doc.activeLayer = c; var u = c.merge(); u.name = nome; }
+        } else {
+            rimuovi(c);
+            if (O.unisci) d.name = nome;
+        }
+    }
+
     function creaOmbra(doc, sogg, sag, cfg, R) {
+        var O = cfg.ombra;
+        if (!(limita(O.intensita, 0, 200) > 0)) return null;        // intensità 0: nessun livello vuoto nel PSD
+        if (O.segui === false) return creaOmbraDritta(doc, sogg, sag, cfg, R);
+        try { return creaOmbraSegue(doc, sogg, sag, cfg, R); }
+        catch (e) {
+            R.avvisi.push("L'ombra che segue la base non è riuscita (" + testoErrore(e) + "): uso quella dritta.");
+            ripulisciOmbra(doc, O.nomeLivello || "Ombra_Adattiva_Unificata");
+            return creaOmbraDritta(doc, sogg, sag, cfg, R);
+        }
+    }
+    function ripulisciOmbra(doc, nome) {                  // livelli d'ombra rimasti a metà da un tentativo fallito
+        deseleziona(doc);
+        for (var i = doc.artLayers.length - 1; i >= 0; i--) {
+            try { if (doc.artLayers[i].name.indexOf(nome) === 0) doc.artLayers[i].remove(); } catch (e) {}
+        }
+    }
+
+    // L'ombra del v3: la parte bassa della sagoma schiacciata in verticale verso una riga orizzontale.
+    function creaOmbraDritta(doc, sogg, sag, cfg, R) {
         var O = cfg.ombra, st = stileOmbra(O.stile), f = limita(O.intensita, 0, 200) / 100;
         var W = px(doc.width), H = px(doc.height), k = Math.sqrt(W * H) / RIF;
         var B = bordi(sag);
         if (B.w < 2 || B.h < 2) return null;
         var piano = O.appoggioReale ? pianoAppoggio(doc, sag, k) : null;
-        var suolo = piano ? piano.y : B.b;
-        var largh = B.w, alt = B.h, dimRif = Math.max(largh, alt);
-        var blurD = limita(dimRif * 0.010, st.dBmin * k, st.dBmax * k);
-        var blurC = limita(dimRif * 0.0038, st.cBmin * k, st.cBmax * k);
+        var suolo = piano ? piano.y : B.b, alt = B.h, sf = sfocature(st, B, k);
         var offD = limita(alt * 0.0030, 2 * k, 14 * k);
         var offC = limita(alt * 0.0012, 0, 6 * k);
         var nome = O.nomeLivello || "Ombra_Adattiva_Unificata";
@@ -859,28 +901,298 @@ $.global.BORIN = (function () {
         if (!haPixel(d)) { rimuovi(d); return null; }
         d.resize(st.dSX, st.dSY, AnchorPosition.BOTTOMCENTER);
         allineaAlSuolo(d, suolo, offD);
-        d.applyGaussianBlur(blurD);
-        d.blendMode = BlendMode.MULTIPLY;
-        d.opacity = Math.min(100, st.dO * f);
 
         var c = sag.duplicate(sogg, ElementPlacement.PLACEAFTER);   // sopra la diffusa, come nel v3
         c.visible = true; c.name = nome + "_Contatto";
         tieniBandaBassa(doc, c, st.cB, 35 * k, 520 * k, fondoBanda);
-        var risultato = d;
         if (haPixel(c)) {
             c.resize(st.cSX, st.cSY, AnchorPosition.BOTTOMCENTER);
             allineaAlSuolo(c, suolo, offC);
-            c.applyGaussianBlur(blurC);
-            c.blendMode = BlendMode.MULTIPLY;
-            c.opacity = Math.min(100, st.cO * f);
-            if (O.unisci) { doc.activeLayer = c; risultato = c.merge(); risultato.name = nome; }
-        } else {
-            rimuovi(c);
-            if (O.unisci) d.name = nome;
         }
+        finisciOmbra(doc, d, c, st, f, sf, O, nome);
         return {
             suolo: Math.round(suolo), baseOggetto: Math.round(B.b), pianoReale: !!piano,
-            correzione: piano ? piano.correzione : 0, sfocatura: Math.round(blurD), sagomaPulita: true
+            correzione: piano ? piano.correzione : 0, sfocatura: Math.round(sf.d), sagomaPulita: true, segue: false
+        };
+    }
+
+    // ============================================================ ombra che segue la base (8.1)
+    // Il v3 schiaccia in verticale la parte bassa della sagoma verso una riga orizzontale sotto il punto più basso.
+    // Con la base ad angolo (prodotto di tre quarti) l'ombra restava dritta e i piedini dietro sospesi; con più pezzi in
+    // diagonale c'era ombra solo sotto il pezzo più basso. Qui la stessa fascia si schiaccia, colonna per colonna, verso
+    // il «pavimento» di ogni pezzo: la linea che unisce i suoi punti d'appoggio (il bordo inferiore dell'involucro
+    // convesso) con le pendenze vere, fino a 40°. I tratti più ripidi (la canna di una pistola in aria) non sono
+    // appoggio; le parti sottili che pendono sotto la base (un cavo) si ignorano. Con la base dritta è l'ombra del v3.
+    var PENDENZA_MAX = 1.0;                               // tan 45°
+    var LATO_PROFILO = 640;                               // lato lungo della copia ridotta su cui si misura la base
+
+    // Copia ridotta della sagoma salvata in RAW (un byte per pixel, scuro = oggetto) e riletta qui.
+    function leggiSagoma(doc, sag, lato) {
+        var m = sagomaRidotta(doc, sag, lato), md = m.doc, f = null;
+        try {
+            app.activeDocument = md;
+            md.changeMode(ChangeMode.GRAYSCALE);
+            f = new File(Folder.temp.fsName + "/borin_sagoma_" + ora() + "_" + (++CONTATORE) + ".raw");
+            md.saveAs(f, new RawSaveOptions(), true, Extension.LOWERCASE);
+            var w = Math.round(px(md.width)), h = Math.round(px(md.height));
+            f.encoding = "BINARY";
+            if (!f.open("r")) throw new Error("copia della sagoma non leggibile");
+            var s = f.read();
+            f.close();
+            if (s.length < w * h) throw new Error("copia della sagoma incompleta (" + s.length + " byte su " + (w * h) + ")");
+            return {w: w, h: h, s: s, ox: m.ox, oy: m.oy, sx: m.sx, sy: m.sy};
+        } finally {
+            try { md.close(SaveOptions.DONOTSAVECHANGES); } catch (e) {}
+            if (f) { try { f.remove(); } catch (e2) {} }
+            try { app.activeDocument = doc; } catch (e3) {}
+        }
+    }
+
+    // Pezzi staccati (8-connessi) e, per ognuno, la riga più bassa di ogni colonna.
+    function pezziSagoma(S) {
+        var w = S.w, h = S.h, runs = [], padre = [], inizio = [], y, j, k;
+        function radice(a) { while (padre[a] !== a) { padre[a] = padre[padre[a]]; a = padre[a]; } return a; }
+        for (y = 0; y < h; y++) {
+            var riga = S.s.substr(y * w, w), re = /[\x00-\x7f]+/g, m, da = runs.length;
+            while ((m = re.exec(riga)) !== null) { padre.push(runs.length); runs.push({y: y, a: m.index, b: m.index + m[0].length - 1}); }
+            inizio.push(da);
+            if (y > 0) {
+                j = inizio[y - 1]; k = da;
+                while (j < da && k < runs.length) {
+                    var A = runs[j], C = runs[k];
+                    if (A.b + 1 >= C.a && C.b + 1 >= A.a) { var ra = radice(j), rc = radice(k); if (ra !== rc) padre[rc] = ra; }
+                    if (A.b < C.b) j++; else k++;
+                }
+            }
+        }
+        var mappa = {}, pezzi = [], i, x;
+        for (i = runs.length - 1; i >= 0; i--) {           // dal basso: il primo run che copre una colonna ne è il fondo
+            var r = runs[i], id = radice(i), p = mappa[id];
+            if (!p) { p = mappa[id] = {x0: r.a, x1: r.b, y0: r.y, y1: r.y, area: 0, fondo: {}, cima: {}, pieni: {}}; pezzi.push(p); }
+            p.area += r.b - r.a + 1;
+            if (r.a < p.x0) p.x0 = r.a;
+            if (r.b > p.x1) p.x1 = r.b;
+            if (r.y < p.y0) p.y0 = r.y;
+            for (x = r.a; x <= r.b; x++) {
+                if (p.fondo[x] === undefined) { p.fondo[x] = r.y; p.pieni[x] = 0; }
+                p.cima[x] = r.y;                               // si sale: l'ultimo run visto è il più alto
+                p.pieni[x]++;
+            }
+        }
+        pezzi.sort(function (a, b) { return b.area - a.area; });
+        return pezzi;
+    }
+
+    // Un pezzo minore «pende» sopra quello grande se, dove si sovrappongono, il suo fondo sta ben più in alto.
+    function pendeSopra(p, g) {
+        var sopra = 0, tot = 0, soglia = 0.05 * (g.y1 - g.y0 + 1);
+        for (var x = Math.max(p.x0, g.x0); x <= Math.min(p.x1, g.x1); x++) {
+            if (p.fondo[x] === undefined || g.fondo[x] === undefined) continue;
+            tot++;
+            if (p.fondo[x] < g.fondo[x] - soglia) sopra++;
+        }
+        return tot > 0 && sopra >= 0.5 * tot;
+    }
+
+    // Pavimento di un pezzo, in pixel della tela: per ogni colonna la Y della linea d'appoggio.
+    function pavimentoPezzo(p, S, yPiano) {
+        var n = p.x1 - p.x0 + 1, X = [], Y = [], F = [], i, j;
+        for (i = 0; i < n; i++) {
+            X.push(S.ox + (p.x0 + i + 0.5) / S.sx);
+            Y.push(S.oy + (p.fondo[p.x0 + i] + 1) / S.sy);
+        }
+        var P = {X: X, Y: Y, F: F, colonna: 1 / S.sx, alt: (p.y1 - p.y0 + 1) / S.sy, larg: n / S.sx, inclinato: false, punte: 0};
+        if (yPiano !== null && yPiano !== undefined) {   // appoggio reale: piano orizzontale trovato dal motore
+            for (i = 0; i < n; i++) F.push(yPiano);
+            return P;
+        }
+        // parti sottili che pendono (cavi): «apertura» del profilo con una finestra dell'1,2 % della larghezza
+        var r = Math.max(1, Math.round(n * 0.006)), e = [], Yh = [];
+        for (i = 0; i < n; i++) { var mn = Infinity; for (j = Math.max(0, i - r); j <= Math.min(n - 1, i + r); j++) if (Y[j] < mn) mn = Y[j]; e.push(mn); }
+        for (i = 0; i < n; i++) {
+            var mx = -Infinity;
+            for (j = Math.max(0, i - r); j <= Math.min(n - 1, i + r); j++) if (e[j] > mx) mx = e[j];
+            if (Y[i] - mx > 0.08 * P.alt) { Yh.push(mx); P.punte++; } else Yh.push(Y[i]);
+        }
+        // bordo inferiore dell'involucro convesso (Y cresce verso il basso)
+        var Hc = [];
+        for (i = 0; i < n; i++) {
+            while (Hc.length >= 2) {
+                var a = Hc[Hc.length - 2], b = Hc[Hc.length - 1];
+                if ((X[b] - X[a]) * (Yh[i] - Yh[a]) - (Yh[b] - Yh[a]) * (X[i] - X[a]) >= 0) Hc.pop(); else break;
+            }
+            Hc.push(i);
+        }
+        // Il pavimento parte dal punto più basso e prosegue, a destra e a sinistra, lungo l'involucro finché i tratti sono
+        // appoggi veri: quasi piani, oppure inclinati fino a 40°, lunghi almeno il 12 % del pezzo e diretti verso un
+        // appoggio. Un appoggio è l'estremità del pezzo o un punto più basso dei vicini (piedino, gamba, spigolo) con
+        // l'oggetto pieno sopra di sé: un tubo che pende ad ansa o una curva che sale non lo sono.
+        for (i = 0; i < n; i++) F.push(null);
+        var win = Math.max(2, Math.round(n * 0.008)), tol = 0.004 * P.alt;
+        function sopra(v) {                                   // sopra la colonna v: altezza dell'oggetto (px) e quanto è pieno (0–1)
+            var m = {alto: 0, pieno: 0};
+            for (var q = Math.max(0, v - 1); q <= Math.min(n - 1, v + 1); q++) {
+                var x = p.x0 + q, alto = p.fondo[x] - p.cima[x] + 1;
+                if (alto > 0 && p.pieni[x] / alto >= m.pieno) m = {alto: alto / S.sy, pieno: p.pieni[x] / alto};
+            }
+            return m;
+        }
+        // Appoggio: sopra c'è l'oggetto pieno per almeno un quarto della sua altezza (piedino o gamba che sale nel corpo,
+        // spigolo di un mobile), e il punto è più basso dei vicini o è l'estremità del pezzo. Un serbatoio appeso di
+        // lato o l'ansa di un tubo non lo sono.
+        function appoggio(v) {
+            var m = sopra(v);
+            if (m.pieno < 0.6 || m.alto < 0.25 * P.alt) return false;
+            if (v === 0 || v === n - 1) return true;
+            for (var q = Math.max(0, v - win); q <= Math.min(n - 1, v + win); q++) if (Yh[q] > Yh[v] + tol) return false;
+            return true;
+        }
+        // Dal punto più basso si salta, a destra e a sinistra, al vertice dell'involucro più lontano che è ancora
+        // pavimento: la linea dritta fino a lì non supera i 40° e passa vicino a tutti i vertici in mezzo (entro il 2 %
+        // dell'altezza: gli spigoli arrotondati di un piedino o le gobbe di una lancia non fermano niente); se è
+        // inclinata, è lunga almeno il 12 % del pezzo e arriva su un appoggio. Poi si riparte da lì.
+        var devMin = 0.02 * P.alt + 2 / S.sy;
+        function riempi(a, b) {                                  // a < b, indici nell'involucro: F lungo i vertici
+            for (var t = a; t < b; t++) {
+                var u = Hc[t], v = Hc[t + 1], ddx = Math.max(X[v] - X[u], 1e-6);
+                for (var q = u; q <= v; q++) F[q] = Yh[u] + (Yh[v] - Yh[u]) * (X[q] - X[u]) / ddx;
+            }
+        }
+        function salto(da, verso) {
+            for (var v = verso > 0 ? Hc.length - 1 : 0; v !== da; v -= verso) {
+                var a = Math.min(da, v), b = Math.max(da, v), ia = Hc[a], ib = Hc[b];
+                var dx = Math.max(X[ib] - X[ia], 1e-6), dy = Yh[ib] - Yh[ia], pd = Math.abs(dy) / dx, ok = pd <= PENDENZA_MAX;
+                var devMax = devMin + 0.02 * Math.sqrt(dx * dx + dy * dy);
+                for (var t = a + 1; t < b && ok; t++) if (Yh[Hc[t]] - (Yh[ia] + dy * (X[Hc[t]] - X[ia]) / dx) > devMax) ok = false;
+                // un pezzo lungo e dritto (una lancia distesa) è pavimento da un capo all'altro anche senza «appoggi»
+                var disteso = dx >= 0.9 * P.larg;
+                if (ok && pd > 0.04 && (dx < 0.12 * P.larg || !(disteso || appoggio(Hc[v])))) ok = false;
+                if (!ok) continue;
+                if (pd > 0.04) P.inclinato = true;
+                riempi(a, b);
+                return v;
+            }
+            return -1;
+        }
+        var jMin = 0, jj, v2;
+        for (j = 1; j < Hc.length; j++) if (Yh[Hc[j]] > Yh[Hc[jMin]]) jMin = j;
+        F[Hc[jMin]] = Yh[Hc[jMin]];
+        for (jj = jMin; jj < Hc.length - 1 && (v2 = salto(jj, 1)) >= 0;) jj = v2;
+        for (jj = jMin; jj > 0 && (v2 = salto(jj, -1)) >= 0;) jj = v2;
+        // colonne senza appoggio: in orizzontale dal tratto più vicino, o in linea fra due tratti se non è ripida
+        var basso = -Infinity;
+        for (i = 0; i < n; i++) if (Yh[i] > basso) basso = Yh[i];
+        var sx = -1;
+        for (i = 0; i <= n; i++) {
+            if (i < n && F[i] === null) continue;
+            if (i - sx > 1) {                                // buco da sx+1 a i-1
+                for (j = sx + 1; j < i; j++) {
+                    if (sx < 0 && i >= n) F[j] = basso;
+                    else if (sx < 0) F[j] = F[i];
+                    else if (i >= n) F[j] = F[sx];
+                    else {
+                        var pend2 = Math.abs(F[i] - F[sx]) / Math.max(X[i] - X[sx], 1e-6);
+                        F[j] = pend2 <= PENDENZA_MAX ? F[sx] + (F[i] - F[sx]) * (X[j] - X[sx]) / (X[i] - X[sx]) : (j - sx <= i - j ? F[sx] : F[i]);
+                    }
+                }
+            }
+            sx = i;
+        }
+        return P;
+    }
+
+    // Fascia bassa di un pezzo schiacciata verso il suo pavimento: «tieniBandaBassa» + «resize» del v3, colonna per colonna.
+    // In ogni colonna la fascia va dal fondo del pezzo (D sopra il pavimento) all'altezza «banda»: schiacciata diventa
+    // [F - s·banda, F - s·D], più lo scarto verso il basso. Restituisce i poligoni da riempire.
+    function poligoniFascia(P, perc, minPx, maxPx, s, largX, scarto) {
+        var n = P.X.length, banda = limita(P.alt * perc, minPx, maxPx), D = [], i, a = -1, b = -1, poli = [];
+        for (i = 0; i < n; i++) {
+            var d = Math.max(0, P.F[i] - P.Y[i]);
+            D.push(d <= banda ? d : -1);
+            if (D[i] >= 0) { if (a < 0) a = i; b = i; }
+        }
+        if (a < 0) return poli;
+        var cx = (P.X[a] + P.X[b]) / 2, kx = largX / 100, mezza = P.colonna / 2;
+        function xx(v) { return Math.round((cx + (v - cx) * kx) * 10) / 10; }
+        function yy(v) { return Math.round(v * 10) / 10; }
+        i = 0;
+        while (i < n) {
+            if (D[i] < 0) { i++; continue; }
+            var da = i;
+            while (i < n && D[i] >= 0) i++;
+            var fino = i - 1, sotto = [], sopra = [], c;
+            for (c = da; c <= fino; c++) {
+                var E = P.F[c] - s * D[c] + scarto, T = P.F[c] - s * banda + scarto;
+                if (c === da) { sotto.push([xx(P.X[c] - mezza), yy(E)]); sopra.push([xx(P.X[c] - mezza), yy(T)]); }
+                sotto.push([xx(P.X[c]), yy(E)]); sopra.push([xx(P.X[c]), yy(T)]);
+                if (c === fino) { sotto.push([xx(P.X[c] + mezza), yy(E)]); sopra.push([xx(P.X[c] + mezza), yy(T)]); }
+            }
+            var punti = semplifica(sotto).concat(semplifica(sopra).reverse());
+            if (punti.length >= 3) poli.push(punti);
+        }
+        return poli;
+    }
+    function semplifica(l) {                               // toglie i punti allineati (meno di 0,3 px dalla retta)
+        if (l.length < 3) return l;
+        var out = [l[0]];
+        for (var i = 1; i < l.length - 1; i++) {
+            var a = out[out.length - 1], b = l[i], c = l[i + 1], dx = c[0] - a[0], dy = c[1] - a[1], L = Math.sqrt(dx * dx + dy * dy);
+            if (L > 0 && Math.abs((b[0] - a[0]) * dy - (b[1] - a[1]) * dx) / L < 0.3) continue;
+            out.push(b);
+        }
+        out.push(l[l.length - 1]);
+        return out;
+    }
+    function livelloDaPoligoni(doc, sogg, sag, poligoni, nome) {
+        if (!poligoni.length) return null;
+        var l = sag.duplicate(sogg, ElementPlacement.PLACEAFTER);   // stessa posizione delle ombre del v3
+        l.visible = true; l.name = nome;
+        doc.activeLayer = l;
+        doc.selection.selectAll(); doc.selection.clear(); deseleziona(doc);
+        for (var i = 0; i < poligoni.length; i++) doc.selection.select(poligoni[i], i ? SelectionType.EXTEND : SelectionType.REPLACE, 0, true);
+        doc.selection.fill(colore(18, 18, 18), ColorBlendMode.NORMAL, 100, false);   // OMBRA_COLORE del v3
+        deseleziona(doc);
+        if (!haPixel(l)) { rimuovi(l); return null; }
+        return l;
+    }
+
+    function creaOmbraSegue(doc, sogg, sag, cfg, R) {
+        var O = cfg.ombra, st = stileOmbra(O.stile), f = limita(O.intensita, 0, 200) / 100;
+        var W = px(doc.width), H = px(doc.height), k = Math.sqrt(W * H) / RIF;
+        var B = bordi(sag);
+        if (B.w < 2 || B.h < 2) return null;
+        var S = leggiSagoma(doc, sag, LATO_PROFILO), pezzi = pezziSagoma(S);
+        if (!pezzi.length) return null;
+        // Più pezzi simili (un kit, due prodotti): ognuno ha la sua ombra. Con un pezzo che domina, gli altri l'hanno
+        // solo se non stanno sospesi sopra il suo fondo (un tubo staccato dallo scontorno non deve fare ombra a mezz'aria).
+        var g = pezzi[0], gruppo = pezzi.length > 1 && pezzi[1].area >= 0.25 * g.area, scelti = [], i;
+        for (i = 0; i < pezzi.length; i++) {
+            var p = pezzi[i];
+            if (p.area < 0.03 * g.area) continue;
+            if (p !== g && !gruppo && pendeSopra(p, g)) continue;
+            scelti.push(p);
+        }
+        var piano = (O.appoggioReale && scelti.length === 1) ? pianoAppoggio(doc, sag, k) : null;
+        var poliD = [], poliC = [], suolo = -Infinity, inclinata = false, punte = 0;
+        for (i = 0; i < scelti.length; i++) {
+            var P = pavimentoPezzo(scelti[i], S, piano ? piano.y : null);
+            var offD = limita(P.alt * 0.0030, 2 * k, 14 * k), offC = limita(P.alt * 0.0012, 0, 6 * k);
+            poliD = poliD.concat(poligoniFascia(P, st.dB, 80 * k, 1400 * k, st.dSY / 100, st.dSX, offD));
+            poliC = poliC.concat(poligoniFascia(P, st.cB, 35 * k, 520 * k, st.cSY / 100, st.cSX, offC));
+            for (var c = 0; c < P.F.length; c++) if (P.F[c] > suolo) suolo = P.F[c];
+            if (P.inclinato) inclinata = true;
+            punte += P.punte;
+        }
+        var nome = O.nomeLivello || "Ombra_Adattiva_Unificata";
+        var d = livelloDaPoligoni(doc, sogg, sag, poliD, nome + "_Diffusa");
+        if (!d) return null;
+        var cc = livelloDaPoligoni(doc, sogg, sag, poliC, nome + "_Contatto");   // sopra la diffusa, come nel v3
+        finisciOmbra(doc, d, cc, st, f, sfocature(st, B, k), O, nome);
+        if (punte && !piano) R.avvisi.push("Una parte sottile pende sotto la base (un cavo?): l'ombra la ignora e resta sotto l'oggetto.");
+        return {
+            suolo: Math.round(suolo), baseOggetto: Math.round(B.b), pianoReale: !!piano, correzione: piano ? piano.correzione : 0,
+            sfocatura: Math.round(sfocature(st, B, k).d), sagomaPulita: true, segue: true, pezzi: scelti.length, inclinata: inclinata,
+            cavoIgnorato: punte > 0 && !piano
         };
     }
 

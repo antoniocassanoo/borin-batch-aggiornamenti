@@ -3,7 +3,7 @@
    batch interrotto in stato-batch.json (per riprendere); storico in sessioni.json. */
 (function () {
   "use strict";
-  const VERSIONE = "8.0";
+  const VERSIONE = "8.1";
   const RIF = 5120;
   const P = window.BORIN_PRESET, D = window.BORIN_DISCO, Ponte = window.Ponte;
   const $ = (s, el) => (el || document).querySelector(s);
@@ -13,7 +13,7 @@
 
   const S = {
     cfg: P.dalPreset("auto"), presetId: "auto", memoria: true, presetMiei: [],
-    sorgente: "CARTELLA", ingresso: "", uscita: "", file: [], scelto: 0,
+    sorgente: "CARTELLA", ingresso: "", uscita: "", scelti: [], file: [], scelto: 0,
     info: null, collegato: false, inCorso: false, ferma: false, sessione: null, fondoBianco: false
   };
   const FASI = {
@@ -122,22 +122,30 @@
     S.presetMiei = Array.isArray(s.presetMiei) ? s.presetMiei : [];
     if (s.aspetto) { S.aspetto = Object.assign({ tema: "auto", colore: "acciaio" }, s.aspetto); applicaAspetto(); }
     S.ultimoControllo = (s.aggiornamenti && s.aggiornamenti.ultimo) || 0;
+    S.appProposta = !!s.appProposta;
     if (S.memoria && s.cfg) {
       S.cfg = P.completa(s.cfg);
       S.presetId = s.presetId || "personalizzato";
       S.ingresso = s.ingresso || "";
       S.uscita = s.uscita || "";
-      S.sorgente = s.sorgente === "DOCUMENTI" ? "DOCUMENTI" : "CARTELLA";
+      S.sorgente = ["DOCUMENTI", "FILE"].includes(s.sorgente) ? s.sorgente : "CARTELLA";
+      S.scelti = Array.isArray(s.scelti) ? s.scelti.filter(p => D.esiste(p)) : [];
       if (S.ingresso && !D.esiste(S.ingresso)) S.ingresso = "";
       if (S.uscita && !D.esiste(S.uscita)) S.uscita = "";
+      // 8.1: le uscite si ordinano «per formato»; chi aveva la struttura del v3 solo perché era quella predefinita passa alla nuova
+      if (!s.versione || s.versione === "8.0") {
+        if (S.cfg.export.struttura === "PRODOTTO") S.cfg.export.struttura = "FORMATO";
+        S.presetId = presetCorrispondente();
+      }
     }
   }
   let timerSalva = null;
   function salva() {
     clearTimeout(timerSalva);
     timerSalva = setTimeout(() => {
-      const dati = { versione: VERSIONE, memoria: S.memoria, presetMiei: S.presetMiei, aspetto: S.aspetto, aggiornamenti: { ultimo: S.ultimoControllo || 0 } };
-      if (S.memoria) Object.assign(dati, { cfg: S.cfg, presetId: S.presetId, ingresso: S.ingresso, uscita: S.uscita, sorgente: S.sorgente });
+      const dati = { versione: VERSIONE, memoria: S.memoria, presetMiei: S.presetMiei, aspetto: S.aspetto, aggiornamenti: { ultimo: S.ultimoControllo || 0 },
+        appProposta: !!S.appProposta };
+      if (S.memoria) Object.assign(dati, { cfg: S.cfg, presetId: S.presetId, ingresso: S.ingresso, uscita: S.uscita, sorgente: S.sorgente, scelti: S.scelti });
       try { D.scriviJSON(FILE_IMPOSTAZIONI, dati); } catch (e) { mostraErrore("Impostazioni non salvate: " + e.message); }
     }, 250);
   }
@@ -204,7 +212,7 @@
   const STILI = {
     STANDARD: { nome: "Standard", nota: "quella di sempre", d: 18, c: 34, bd: 1, bc: 1 },
     DELICATA: { nome: "Delicata", nota: "più leggera", d: 12, c: 24, bd: 1.25, bc: 1.2 },
-    PREMIUM: { nome: "Premium", nota: "più larga e morbida", d: 16, c: 30, bd: 1.3, bc: 1.05 },
+    PREMIUM: { nome: "Premium", nota: "più larga e morbida", d: 16, c: 30, bd: 1.35, bc: 1.1 },
     CONTATTO: { nome: "Contatto marcato", nota: "scura alla base", d: 11, c: 48, bd: 0.9, bc: 0.7 }
   };
   function ombraSVG(id, cx, base, w, scala, stile, intensita) {
@@ -297,7 +305,7 @@
       ["Tela", numero(c.tela.larghezza) + " × " + numero(c.tela.altezza) + " px a " + numero(c.tela.dpi) + " DPI"],
       ["Preparazione", testoPreparazione(c)],
       ["Oggetto", testoPosizione(c)],
-      ["Ombra", c.ombra.attiva ? STILI[c.ombra.stile].nome + " al " + numero(c.ombra.intensita) + " %" + (c.ombra.appoggioReale ? ", appoggio reale" : "") : "nessuna"],
+      ["Ombra", c.ombra.attiva ? STILI[c.ombra.stile].nome + " al " + numero(c.ombra.intensita) + " %" + (c.ombra.segui === false ? ", dritta" : ", segue la base") + (c.ombra.appoggioReale ? ", appoggio reale" : "") : "nessuna"],
       ["Colore", testoColore(c)],
       ["Formati", testoFormati(c)]
     ];
@@ -334,7 +342,7 @@
     // riassunti delle sezioni
     $("#r-preparazione").textContent = testoPreparazione(c);
     $("#r-tela").textContent = numero(c.tela.larghezza) + " × " + numero(c.tela.altezza) + (c.posizione.modo === "CENTRA" && c.posizione.ridimensiona ? " · " + numero(c.posizione.riempimento) + " %" : "");
-    $("#r-ombra").textContent = c.ombra.attiva ? STILI[c.ombra.stile].nome + " " + numero(c.ombra.intensita) + " %" : "spenta";
+    $("#r-ombra").textContent = c.ombra.attiva ? STILI[c.ombra.stile].nome + " " + numero(c.ombra.intensita) + " %" + (c.ombra.segui === false ? ", dritta" : "") : "spenta";
     $("#r-colore").textContent = [c.colore.mappa && "mappa", c.colore.tonalita && "tonalità", c.colore.curva && "curva"].filter(Boolean).join(", ") || "nessuno";
     $("#r-export").textContent = ["psd", "jpg", "png", "webp"].filter(k => c.export[k]).map(k => k === "webp" ? "WebP" : k.toUpperCase()).join(", ") || "nessuno";
     $("#r-memoria").textContent = "memoria " + (S.memoria ? "accesa" : "spenta");
@@ -342,6 +350,8 @@
     disegnaPreset();
     disegnaSchema();
     disegnaDati();
+    disegnaFormati();
+    disegnaAlbero();
     aggiornaPulsanti();
     aggiornaPrevisioni();
   }
@@ -406,14 +416,16 @@
   });
   $("#bImportaPreset").addEventListener("click", () => {
     const f = Ponte.scegliFile("Scegli un preset BORIN (.json)", "", ["json"]);
-    if (!f) return;
+    if (f) importaPreset(f);
+  });
+  function importaPreset(f) {
     const d = D.leggiJSON(f, null);
     if (!d || !d.cfg) { mostraErrore("Questo file non è un preset BORIN Batch."); return; }
     const nome = d.nome || D.nomeDi(f).replace(/\.json$/i, "");
     const id = nome.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || String(Date.now());
     S.presetMiei = S.presetMiei.filter(p => p.id !== id).concat([{ id, nome, cfg: P.completa(d.cfg), creato: new Date().toISOString() }]);
     usaPreset("mio:" + id);
-  });
+  }
   $("#bRipristina").addEventListener("click", () => usaPreset("auto"));
   $("#memoria").addEventListener("change", e => { S.memoria = e.target.checked; aggiorna(); salva(); });
   $("#bDimentica").addEventListener("click", () => {
@@ -442,21 +454,40 @@
   function mostraCartelle() {
     mostraVia($("#viaIngresso"), S.ingresso);
     mostraVia($("#viaUscita"), S.uscita);
-    $("#bApriUscita").hidden = !S.uscita;
+    $("#bApriUscita").hidden = !S.uscita || !D.esiste(S.uscita);
     $$("#sorgente button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === S.sorgente)));
     $("#perCartella").hidden = S.sorgente !== "CARTELLA";
+    $("#perFile").hidden = S.sorgente !== "FILE";
     $("#perDocumenti").hidden = S.sorgente !== "DOCUMENTI";
+    $("#spuntaSotto").hidden = S.sorgente === "DOCUMENTI";
+    mostraScelti();
     let nota = "";
     if (S.sorgente === "CARTELLA" && S.ingresso && S.uscita && D.stessoPercorso(S.ingresso, S.uscita)) nota = "Ingresso e uscita sono la stessa cartella: scegline un'altra per l'uscita.";
     else if (S.sorgente === "CARTELLA" && S.ingresso && S.uscita && D.dentro(S.uscita, S.ingresso)) nota = "L'uscita è dentro la cartella delle immagini: non verrà rielaborata.";
     $("#notaCartelle").textContent = nota;
+  }
+  function mostraScelti() {                               // «Alcuni file»: quanti e da dove
+    const el = $("#viaFile");
+    if (!el) return;
+    const n = S.sorgente === "FILE" ? S.file.length : 0;
+    el.classList.toggle("vuota", !S.scelti.length);
+    if (!S.scelti.length) { el.textContent = "Nessun file scelto"; $("#bSvuotaFile").hidden = true; return; }
+    $("#bSvuotaFile").hidden = false;
+    const cartelle = [...new Set(S.scelti.map(p => D.eCartella && D.eCartella(p) ? D.nomeDi(p) : D.nomeDi(D.cartellaDi(p))))];
+    el.innerHTML = `<b>${n} ${n === 1 ? "immagine" : "immagini"}</b><span class="sopra">da ${esc(cartelle.slice(0, 3).join(", "))}${cartelle.length > 3 ? " e altre " + (cartelle.length - 3) : ""}</span>`;
+    el.title = S.scelti.join("\n");
   }
   function leggiFile() {
     S.file = [];
     if (S.sorgente === "CARTELLA" && S.ingresso) {
       S.file = D.elencaImmagini(S.ingresso, { sottocartelle: S.cfg.avvio.sottocartelle, escludi: S.uscita ? [S.uscita] : [] });
       S.file.forEach(f => { f.intest = D.intestazione(f.percorso); });
+    } else if (S.sorgente === "FILE" && S.scelti.length) {
+      const via = new Set(S.escludiDaCartelle || []);
+      S.file = D.elencaScelti(S.scelti, { sottocartelle: S.cfg.avvio.sottocartelle, escludi: S.uscita ? [S.uscita] : [] }).filter(f => !via.has(f.percorso));
+      S.file.forEach(f => { f.intest = D.intestazione(f.percorso); });
     }
+    mostraScelti();
     S.scelto = 0;
     disegnaFile();
   }
@@ -477,16 +508,39 @@
     S.sorgente = b.dataset.v;
     mostraCartelle();
     if (S.sorgente === "DOCUMENTI") leggiDocumenti(); else leggiFile();
-    salva();
+    aggiorna(); salva();
   });
   $("#bDocumenti").addEventListener("click", leggiDocumenti);
+  function uscitaPredefinita(p) {                          // accanto alla cartella delle foto: «<cartella> - BORIN»
+    const c = D.eCartella(p) ? p : D.cartellaDi(p);
+    return D.unisci(D.cartellaDi(c), D.nomeDi(c) + " - BORIN");
+  }
+  function usaCartella(c) {
+    S.sorgente = "CARTELLA"; S.ingresso = c;
+    if (!S.uscita) S.uscita = uscitaPredefinita(c);
+    mostraCartelle(); leggiFile(); aggiorna(); salva();
+  }
+  // File e cartelle in più: si aggiungono a «Alcuni file» (senza doppioni). Restituisce quanti non sono immagini.
+  function aggiungiScelti(percorsi, sostituisci) {
+    const validi = percorsi.filter(p => D.eCartella(p) || D.supportato(p)), scartati = percorsi.length - validi.length;
+    if (validi.length) {
+      const prima = (S.sorgente === "FILE" && !sostituisci) ? S.scelti : [];
+      S.scelti = [...new Set(prima.concat(validi))];
+      S.sorgente = "FILE";
+      if (!S.uscita) S.uscita = uscitaPredefinita(validi[0]);
+      mostraCartelle(); leggiFile(); aggiorna(); salva();
+    }
+    return scartati;
+  }
   $("#bIngresso").addEventListener("click", () => {
     const c = Ponte.scegliCartella("Scegli la cartella delle immagini da elaborare", S.ingresso);
-    if (!c) return;
-    S.ingresso = c;
-    if (!S.uscita) S.uscita = D.unisci(D.cartellaDi(c), D.nomeDi(c) + " - BORIN");
-    mostraCartelle(); leggiFile(); aggiorna(); salva();
+    if (c) usaCartella(c);
   });
+  $("#bAggiungiFile").addEventListener("click", () => {
+    const l = Ponte.scegliFiles("Scegli le immagini da elaborare", S.scelti.length ? D.cartellaDi(S.scelti[S.scelti.length - 1]) : S.ingresso, D.ESTENSIONI);
+    if (l && l.length) aggiungiScelti(l);
+  });
+  $("#bSvuotaFile").addEventListener("click", () => { S.scelti = []; S.escludiDaCartelle = []; leggiFile(); aggiorna(); salva(); });
   $("#bUscita").addEventListener("click", () => {
     const c = Ponte.scegliCartella("Scegli dove salvare le immagini pronte", S.uscita || S.ingresso);
     if (!c) return;
@@ -524,13 +578,16 @@
     const misure = int.larghezza ? numero(int.larghezza) + " × " + numero(int.altezza) + " px" : "";
     const extra = [int.formato && int.formato !== "?" ? `<span class="etic">${esc(int.formato)}</span>` : "", misure ? `<span>${misure}</span>` : "",
       f.rel ? `<span>${esc(f.rel)}</span>` : "", int.modo && int.modo !== "RGB" ? `<span>${esc(int.modo)}</span>` : ""].join("");
+    const togli = S.sorgente === "FILE" && !S.inCorso ? `<button class="togli" data-togli="${i}" title="Togli dall'elenco (il file resta dov'è)" aria-label="Togli ${esc(f.nome)} dall'elenco">×</button>` : "";
     return `<li data-i="${i}" class="${i === S.scelto ? "scelto" : ""}" title="${esc(f.percorso || f.documento)}">${miniaturaIngresso(f)}` +
-      `<span class="nomefile">${esc(f.nome)}</span><span class="stato ${st.cl}">${esc(st.t)}</span><span class="sotto">${extra}</span></li>`;
+      `<span class="nomefile">${esc(f.nome)}</span><span class="stato ${st.cl}">${esc(st.t)}</span><span class="sotto">${extra}</span>${togli}</li>`;
   }
   function disegnaFile() {
     const ol = $("#elencoFile");
     if (!S.file.length) {
-      const t = S.sorgente === "DOCUMENTI" ? "Nessun documento aperto in Photoshop." : S.ingresso ? "Nessuna immagine supportata (JPG, PNG, TIFF, PSD, PSB, WebP)." : "Scegli la cartella delle immagini.";
+      const t = S.sorgente === "DOCUMENTI" ? "Nessun documento aperto in Photoshop."
+        : S.sorgente === "FILE" ? (S.scelti.length ? "Nessuna immagine supportata (JPG, PNG, TIFF, PSD, PSB, WebP)." : "Trascina qui foto o cartelle, oppure «Aggiungi…».")
+        : S.ingresso ? "Nessuna immagine supportata (JPG, PNG, TIFF, PSD, PSB, WebP)." : "Scegli una cartella, oppure trascina qui foto e cartelle.";
       ol.innerHTML = `<li class="vuoto" style="display:block;cursor:default">${t}</li>`;
       $("#contaFile").textContent = "";
     } else {
@@ -545,6 +602,18 @@
   }
   function aggiornaPrevisioni() { if (!S.inCorso && S.file.length) $$("#elencoFile li[data-i]").forEach(li => aggiornaRiga(+li.dataset.i)); }
   $("#elencoFile").addEventListener("click", e => {
+    const tg = e.target.closest("[data-togli]");
+    if (tg && !S.inCorso) {                                // toglie solo dall'elenco: il file resta dov'è
+      const f = S.file[+tg.dataset.togli];
+      if (f) {
+        S.file.splice(+tg.dataset.togli, 1);
+        if (S.scelti.includes(f.percorso)) S.scelti = S.scelti.filter(p => p !== f.percorso);
+        else S.escludiDaCartelle = (S.escludiDaCartelle || []).concat([f.percorso]);
+        S.scelto = Math.min(S.scelto, Math.max(0, S.file.length - 1));
+        disegnaFile(); mostraScelti(); disegnaAlbero(); salva();
+      }
+      return;
+    }
     const li = e.target.closest("li[data-i]");
     if (!li || S.inCorso) return;
     const prima = S.scelto;
@@ -552,6 +621,209 @@
     aggiornaRiga(prima); aggiornaRiga(S.scelto);
     $("#bProva").textContent = S.scelto ? "Prova su questo file" : "Prova sul primo file";
   });
+
+
+  // ------------------------------------------------------------------ formati e «che cosa troverai» (scheda Lavoro e Impostazioni › Export)
+  function misuraUscita(lato, c) {
+    const W = c.tela.larghezza, H = c.tela.altezza;
+    if (lato && lato < Math.max(W, H)) return "lato " + numero(lato) + " px";
+    return W === H ? numero(W) + " px" : numero(W) + " × " + numero(H);
+  }
+  function notaFormato(k, c) {
+    const E = c.export;
+    if (k === "psd") return "livelli" + (E.sfondoBiancoPSD ? ", sfondo bianco" : "");
+    if (k === "jpg") return misuraUscita(E.jpgLato, c) + ", bianco, q" + E.jpgQualita;
+    if (k === "png") return misuraUscita(E.pngLato, c) + ", " + (E.sfondoBiancoPNG ? "bianco" : "trasparente");
+    return misuraUscita(E.webpLato, c) + ", " + (E.sfondoBiancoWebP ? "bianco" : "trasparente") + ", " + (E.webpLossless ? "senza perdita" : "q" + E.webpQualita);
+  }
+  function disegnaFormati() {
+    const E = S.cfg.export, brevi = { psd: "livelli", jpg: "bianco, q" + E.jpgQualita, png: E.sfondoBiancoPNG ? "bianco" : "trasparente",
+      webp: (E.sfondoBiancoWebP ? "bianco" : "trasparente") + (E.webpLossless ? "" : ", q" + E.webpQualita) };
+    $$("#chipFormati [data-nota]").forEach(el => { el.textContent = brevi[el.dataset.nota]; });
+  }
+  // Esempio quando non ci sono ancora file: tre nomi di prodotto, per vedere la struttura.
+  const ESEMPI = ["Armadio inox.png", "Pistola king.jpg", "Kit lance.psd"].map(n => ({ nome: n, ext: n.split(".").pop(), rel: "", percorso: null }));
+  function alberoUscite() {
+    const c = S.cfg, radice = S.uscita || (D.WIN ? "C:\\Cartella di uscita" : "/Cartella di uscita"), esempio = !S.file.length;
+    const elenco = (esempio ? ESEMPI : S.file).slice(0, 400);
+    let piano;
+    try { piano = D.pianifica(elenco, c, radice); } catch (e) { return null; }
+    const T = { nome: D.nomeDi(radice), cartelle: [], file: [], n: 0 };
+    const sotto = (nodo, nome) => { let x = nodo.cartelle.find(z => z.nome === nome); if (!x) { x = { nome, cartelle: [], file: [], n: 0 }; nodo.cartelle.push(x); } return x; };
+    for (const job of piano) {
+      const U = job.uscite, voci = [["psd", U.psd], ["jpg", U.jpg], ["png", U.png], ["webp", U.webp]].concat((U.webpCopie || []).map(x => ["webp", x]));
+      for (const [k, pp] of voci) {
+        if (!pp) continue;
+        const parti = String(D.relativo(radice, pp)).split(/[\\/]/).filter(Boolean), nome = parti.pop();
+        let nodo = T; T.n++;
+        for (const x of parti) { nodo = sotto(nodo, x); nodo.n++; }
+        nodo.file.push({ nome, k, salta: job.salta, protetto: job.protetto });
+      }
+    }
+    return { T, esempio, mancanti: S.file.length > elenco.length ? S.file.length - elenco.length : 0, formati: ["psd", "jpg", "png", "webp"].filter(k => c.export[k]).length };
+  }
+  function htmlAlbero(A) {
+    if (!A) return "";
+    const c = S.cfg, conta = n => numero(n) + " file";
+    // La nota del formato si scrive una volta per formato in ogni cartella: le righe dopo restano pulite.
+    const foglia = (f, visti) => {
+      const nota = f.salta ? "già fatto: si salta" : f.protetto ? "nome cambiato: non copre l'originale" : visti.has(f.k) ? "" : notaFormato(f.k, c);
+      visti.add(f.k);
+      return `<li class="f"><span class="n">${esc(f.nome)}</span><span class="m">${esc(nota)}</span></li>`;
+    };
+    const ramo = (x, prof) => {
+      const unico = x.file.every(f => f.k === (x.file[0] || {}).k);   // cartella di un formato solo: basta un esempio
+      const maxC = prof ? 2 : 4, maxF = unico && x.file.length > 2 ? 1 : prof ? 2 : Math.max(2, A.formati), figli = [], visti = new Set();
+      x.cartelle.slice(0, maxC).forEach(y => figli.push(ramo(y, prof + 1)));
+      if (x.cartelle.length > maxC) figli.push(`<li class="altri">… e altre ${x.cartelle.length - maxC} cartelle</li>`);
+      x.file.slice(0, maxF).forEach(f => figli.push(foglia(f, visti)));
+      if (x.file.length > maxF) figli.push(`<li class="altri">… e altri ${numero(x.file.length - maxF)} file</li>`);
+      return `<li class="c"><span class="n">${esc(x.nome)}</span><span class="m num">${conta(x.n)}</span>${figli.length ? `<ul>${figli.join("")}</ul>` : ""}</li>`;
+    };
+    const figli = [];
+    A.T.cartelle.slice(0, 4).forEach(y => figli.push(ramo(y, 1)));
+    if (A.T.cartelle.length > 4) figli.push(`<li class="altri">… e altre ${A.T.cartelle.length - 4} cartelle</li>`);
+    const vistiRadice = new Set();
+    A.T.file.slice(0, Math.max(2, A.formati)).forEach(f => figli.push(foglia(f, vistiRadice)));
+    if (A.T.file.length > Math.max(2, A.formati)) figli.push(`<li class="altri">… e altri ${numero(A.T.file.length - Math.max(2, A.formati))} file</li>`);
+    figli.push(`<li class="c log"><span class="n">LOG</span><span class="m">registro del batch</span></li>`);
+    const radice = `<li class="c radice"><span class="n">${esc(A.T.nome)}</span><span class="m num">${A.esempio ? "esempio con tre foto" : conta(A.T.n)}</span><ul>${figli.join("")}</ul></li>`;
+    return `<ul>${radice}</ul>` + (A.mancanti ? `<p class="nota piccola">Anteprima dei primi 400 file.</p>` : "");
+  }
+  function disegnaAlbero() {
+    const nessuno = !["psd", "jpg", "png", "webp"].some(k => S.cfg.export[k]);
+    const h = nessuno ? `<p class="vuoto" style="padding:6px 0">Nessun formato scelto: non uscirebbe niente.</p>` : htmlAlbero(alberoUscite());
+    $$(".albero").forEach(el => { el.innerHTML = h; });
+  }
+  $("#bVaiExport").addEventListener("click", () => {
+    $(`.schede [data-scheda="impostazioni"]`).click();
+    const sez = $("#sezExport");
+    sez.open = true;
+    setTimeout(() => sez.scrollIntoView({ behavior: "smooth", block: "start" }), 30);
+  });
+
+  // ------------------------------------------------------------------ trascinare foto e cartelle sul pannello
+  // In alto «Immagini da elaborare», in basso «Dove salvare». Una cartella sola diventa la cartella delle immagini;
+  // file e più cartelle vanno in «Alcuni file» e si aggiungono a quelli che ci sono. Un preset .json si importa.
+  // Senza questo, un file lasciato cadere sul pannello lo faceva navigare via (pannello bianco).
+  const velo = $("#rilascio");
+  let profondita = 0, timerVelo = null;
+  const conFile = e => { const t = e.dataTransfer && e.dataTransfer.types; return !!t && Array.from(t).indexOf("Files") >= 0; };
+  function mostraVelo(sì) {
+    clearTimeout(timerVelo);
+    velo.hidden = !sì;
+    if (!sì) { profondita = 0; $$("#rilascio .zona").forEach(z => z.classList.remove("sopra")); }
+  }
+  function zonaDi(e) { const z = e.target && e.target.closest ? e.target.closest("[data-zona]") : null; return z ? z.dataset.zona : "immagini"; }
+  window.addEventListener("dragenter", e => {
+    if (!conFile(e)) return;
+    e.preventDefault();
+    profondita++;
+    if (S.inCorso) return;
+    const n = e.dataTransfer.items ? e.dataTransfer.items.length : 0;
+    $("#rilascioQuanti").textContent = n > 1 ? "Rilascia " + n + " elementi" : "Rilascia qui";
+    $("#rilascioUscita").textContent = S.uscita ? "Adesso: " + D.nomeDi(S.uscita) : "Rilascia qui una cartella";
+    mostraVelo(true);
+  });
+  window.addEventListener("dragover", e => {
+    e.preventDefault();                                     // senza, il pannello aprirebbe il file al posto suo
+    if (!conFile(e)) { e.dataTransfer.dropEffect = "none"; return; }
+    e.dataTransfer.dropEffect = S.inCorso ? "none" : "copy";
+    if (!velo.hidden) { const z = zonaDi(e); $$("#rilascio .zona").forEach(x => x.classList.toggle("sopra", x.dataset.zona === z)); }
+    clearTimeout(timerVelo);
+    timerVelo = setTimeout(() => mostraVelo(false), 1500);  // se il trascinamento esce dalla finestra senza «dragleave»
+  });
+  window.addEventListener("dragleave", e => {
+    if (!conFile(e)) return;
+    profondita = Math.max(0, profondita - 1);
+    if (!profondita) mostraVelo(false);
+  });
+  window.addEventListener("drop", e => {
+    e.preventDefault();
+    const zona = zonaDi(e);
+    mostraVelo(false);
+    if (S.inCorso || !conFile(e)) return;
+    // I dati del trascinamento si leggono subito: dopo l'evento il browser li svuota.
+    const dt = e.dataTransfer, file = Array.from(dt.files || []);
+    const voci = Array.from(dt.items || []).map(it => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null));
+    let uri = "";
+    try { uri = dt.getData("text/uri-list") || ""; } catch (x) {}
+    rilasciati({ zona, file, voci, uri }).catch(err => mostraErrore("Trascinamento non riuscito: " + err.message));
+  });
+  window.addEventListener("dragend", () => mostraVelo(false));
+  window.addEventListener("keydown", e => { if (e.key === "Escape" && !velo.hidden) mostraVelo(false); });
+
+  function avvisoRilascio(testo) {
+    const el = $("#notaRilascio");
+    el.textContent = testo;
+    el.classList.add("evidenza");
+    clearTimeout(avvisoRilascio.t);
+    avvisoRilascio.t = setTimeout(() => { el.classList.remove("evidenza"); el.textContent = TESTO_RILASCIO; }, 6000);
+  }
+  const TESTO_RILASCIO = $("#notaRilascio").textContent;
+  // Percorsi veri dei file trascinati: «path» del File (Node nel pannello), oppure gli indirizzi file://.
+  // Se non ci sono (succede in qualche versione di CEP) le foto si copiano in una cartella temporanea.
+  async function percorsiRilasciati(d) {
+    const l = d.file.map(f => f.path).filter(Boolean);
+    if (l.length) return { percorsi: l, copiati: false };
+    const u = d.uri.split(/\r?\n/).map(x => x.trim()).filter(x => /^file:/i.test(x)).map(Ponte.percorsoDaURL);
+    if (u.length) return { percorsi: u, copiati: false };
+    return { percorsi: await copiaRilasciati(d), copiati: true };
+  }
+  async function copiaRilasciati(d) {
+    const dest = D.cartellaTemp("trascinati-" + Date.now()), fs = require("fs"), out = [];
+    async function scrivi(file, rel) {
+      const p = D.unisci(dest, rel || "", file.name);
+      D.creaCartella(D.cartellaDi(p));
+      fs.writeFileSync(p, Buffer.from(await file.arrayBuffer()));
+      return p;
+    }
+    async function voce(v, rel) {
+      if (v.isFile) {
+        if (!D.supportato(v.name)) return;
+        const f = await new Promise((ok, ko) => v.file(ok, ko));
+        await scrivi(f, rel);
+      } else if (v.isDirectory) {
+        const lettore = v.createReader(), figli = [];
+        for (;;) { const blocco = await new Promise((ok, ko) => lettore.readEntries(ok, ko)); if (!blocco.length) break; figli.push(...blocco); }
+        for (const c of figli) await voce(c, rel ? rel + "/" + v.name : v.name);
+      }
+    }
+    for (const v of d.voci.filter(Boolean)) {
+      await voce(v, "");
+      if (v.isDirectory) out.push(D.unisci(dest, v.name)); else if (D.supportato(v.name)) out.push(D.unisci(dest, v.name));
+    }
+    if (!d.voci.some(Boolean)) for (const f of d.file) if (D.supportato(f.name)) out.push(await scrivi(f, ""));
+    return out;
+  }
+  async function rilasciati(d) {
+    const { percorsi, copiati } = await percorsiRilasciati(d);
+    if (!percorsi.length) { avvisoRilascio("Non ho trovato immagini fra gli elementi trascinati."); return; }
+    const preset = percorsi.filter(p => /\.json$/i.test(p));
+    if (preset.length === percorsi.length) { preset.forEach(importaPreset); avvisoRilascio(preset.length === 1 ? "Preset importato." : preset.length + " preset importati."); return; }
+    if (d.zona === "uscita") {
+      if (copiati) { avvisoRilascio("Per «Dove salvare» trascina una cartella dal Finder, oppure usa «Scegli…»."); return; }
+      const c = D.eCartella(percorsi[0]) ? percorsi[0] : D.cartellaDi(percorsi[0]);
+      S.uscita = c;
+      mostraCartelle(); if (S.sorgente !== "DOCUMENTI") leggiFile(); aggiorna(); salva();
+      avvisoRilascio("Le immagini pronte andranno in «" + D.nomeDi(c) + "».");
+      return;
+    }
+    const immagini = percorsi.filter(p => !/\.json$/i.test(p));
+    if (immagini.length === 1 && D.eCartella(immagini[0]) && !copiati) {
+      usaCartella(immagini[0]);
+      avvisoRilascio("Cartella delle immagini: «" + D.nomeDi(immagini[0]) + "».");
+      return;
+    }
+    const prima = S.sorgente === "FILE" ? S.file.length : 0;
+    const scartati = aggiungiScelti(immagini, copiati);
+    const nuovi = S.file.length - prima;
+    let t = nuovi > 0 ? (prima ? (nuovi === 1 ? "Aggiunta un'immagine all'elenco." : "Aggiunte " + nuovi + " immagini all'elenco.") : nuovi + (nuovi === 1 ? " immagine pronta." : " immagini pronte.")) : "Nessuna immagine nuova: erano già nell'elenco.";
+    if (scartati) t += scartati === 1 ? " Ignorato un file che non è un'immagine." : " Ignorati " + scartati + " file che non sono immagini.";
+    if (copiati) t += " Le foto sono copiate in una cartella temporanea: scegli tu dove salvare.";
+    if (copiati && S.uscita && D.dentro(S.uscita, D.cartellaTemp(""))) { S.uscita = ""; mostraCartelle(); aggiorna(); salva(); }
+    avvisoRilascio(t);
+  }
 
   // ------------------------------------------------------------------ pulsanti e stato di Photoshop
   function pronto() {
@@ -621,7 +893,7 @@
   function salvaStato(sess, elenco, fatti, completato) {
     if (sess.prova) return;
     try {
-      D.scriviJSON(FILE_STATO, { id: sess.id, inizio: sess.inizio, ingresso: S.ingresso, uscita: S.uscita, sorgente: S.sorgente,
+      D.scriviJSON(FILE_STATO, { id: sess.id, inizio: sess.inizio, ingresso: S.ingresso, uscita: S.uscita, sorgente: S.sorgente, scelti: S.scelti,
         presetId: S.presetId, cfg: sess.cfg, file: elenco.map(f => f.percorso), fatti, completato: !!completato });
     } catch (e) {}
   }
@@ -660,7 +932,8 @@
     D.creaCartella(S.uscita);
     const piano = D.pianifica(elenco, S.cfg, S.uscita);
     const sess = { id, versione: VERSIONE, inizio: Date.now(), prova, totale: piano.length,
-      ingresso: S.sorgente === "CARTELLA" ? S.ingresso : "Documenti aperti in Photoshop", uscita: S.uscita, preset: nomePreset(),
+      ingresso: S.sorgente === "CARTELLA" ? S.ingresso : S.sorgente === "FILE" ? elenco.length + " file scelti (" + [...new Set(elenco.map(f => D.cartellaDi(f.percorso || "")))].slice(0, 3).join(", ") + ")" : "Documenti aperti in Photoshop",
+      uscita: S.uscita, preset: nomePreset(),
       cfg: P.copia(S.cfg), risultati: [], photoshop: S.info && S.info.photoshop, sistema: S.info && S.info.sistema };
     S.sessione = sess; S.ferma = false;
     $("#bloccoEsito").hidden = true;
@@ -744,7 +1017,14 @@
     if (fl.livelli === "PRESERVE") p.push("livelli tenuti separati");
     if (r.scala > 1.05) p.push("ingrandita " + numero(r.scala, 1) + " volte" + (r.scala > 2 ? " (controlla la nitidezza)" : ""));
     else if (r.scala < 0.95) p.push("ridotta");
-    if (r.ombra) p.push(r.ombra.pianoReale ? "ombra sotto la base, senza contare cavi e leve" : "ombra sotto la base dell'oggetto");
+    if (r.ombra) {
+      const o = r.ombra;
+      p.push(o.pianoReale ? "ombra sotto la base, senza contare cavi e leve"
+        : o.pezzi > 1 ? "un'ombra sotto ognuno dei " + o.pezzi + " pezzi"
+        : o.inclinata ? "ombra che segue la base inclinata"
+        : "ombra sotto la base dell'oggetto");
+      if (o.cavoIgnorato) p.push("la parte sottile che pende non conta");
+    }
     const n = (r.uscite || []).length;
     return p.join(", ") + ". Salvata in " + n + (n === 1 ? " formato" : " formati") + " in " + numero((r.durata || 0) / 1000, 0) + " secondi.";
   }
@@ -764,7 +1044,8 @@
       if (r.originale) righe.push(["Originale", numero(r.originale.larghezza) + " × " + numero(r.originale.altezza) + " px · " + r.originale.modo + " · " + r.originale.bit.replace("EIGHT", "8 bit").replace("SIXTEEN", "16 bit").replace("THIRTYTWO", "32 bit")]);
       if (r.scala) righe.push(["Scala", "×" + numero(r.scala, 2) + (r.scala > 1 ? " (ingrandita)" : r.scala < 1 ? " (ridotta)" : "")]);
       if (r.soggettoFinale) righe.push(["Oggetto", numero(r.soggettoFinale.r - r.soggettoFinale.l) + " × " + numero(r.soggettoFinale.b - r.soggettoFinale.t) + " px sulla tela"]);
-      if (r.ombra) righe.push(["Ombra", "appoggio a " + numero(r.ombra.suolo) + " px" + (r.ombra.pianoReale ? " (piano reale, " + r.ombra.correzione + " px sopra il punto più basso)" : ", la base dell'oggetto")]);
+      if (r.ombra) righe.push(["Ombra", (r.ombra.segue ? (r.ombra.pezzi > 1 ? r.ombra.pezzi + " pezzi, " : "") + (r.ombra.inclinata ? "segue la base inclinata, " : "segue la base, ") : "dritta, ") +
+        "appoggio più basso a " + numero(r.ombra.suolo) + " px" + (r.ombra.pianoReale ? " (piano reale, " + r.ombra.correzione + " px sopra il punto più basso)" : "")]);
       righe.push(["Tempo", numero((r.durata || 0) / 1000, 1) + " s"]);
       righe.push(["Salvati", (r.uscite || []).map(u => u.formato).join(", ")]);
     }
@@ -842,7 +1123,9 @@
     if (!st) return;
     {
       S.cfg = P.completa(st.cfg); S.presetId = st.presetId || presetCorrispondente();
-      S.uscita = st.uscita; S.ingresso = st.ingresso || S.ingresso; S.sorgente = "CARTELLA";
+      S.uscita = st.uscita; S.ingresso = st.ingresso || S.ingresso;
+      S.sorgente = st.sorgente === "FILE" ? "FILE" : "CARTELLA";
+      if (st.sorgente === "FILE" && Array.isArray(st.scelti)) S.scelti = st.scelti;
       const elenco = st.file.filter(Boolean).map(p => ({ percorso: p, nome: D.nomeDi(p), rel: "", ext: (p.match(/\.([^.]+)$/) || [, ""])[1].toLowerCase().replace("jpeg", "jpg").replace("tiff", "tif"), byte: 0 }));
       elenco.forEach(f => { f.intest = D.esiste(f.percorso) ? D.intestazione(f.percorso) : { formato: "?", errore: "non trovato" }; });
       S.file = elenco;
@@ -947,6 +1230,53 @@
   }
   $("#bCercaAggiornamenti").addEventListener("click", () => controllaAggiornamenti(true));
 
+
+  // ------------------------------------------------------------------ aprire BORIN Batch come un'app (avvio/ e js/avvio.js)
+  // Mac: «BORIN Batch.app» in Applicazioni. Windows: collegamento sul desktop e nel menu Start. Aprono Photoshop e il
+  // pannello si apre da solo (estensione invisibile «com.borin.batch.avvio»). Chi aggiorna dal pannello la crea da qui.
+  const SU_MAC = !D.WIN;
+  function disegnaApp(msg) {
+    if (!D.statoApp) { $("#bloccoApp").hidden = true; return; }
+    const ci = D.statoApp();
+    $("#testoApp").textContent = SU_MAC
+      ? "L'app «BORIN Batch» in Applicazioni apre Photoshop con questo pannello già aperto: si lancia dal Launchpad, da Spotlight o dal Dock, senza passare da Finestra › Estensioni (precedenti)."
+      : "Il collegamento «BORIN Batch» sul desktop e nel menu Start apre Photoshop con questo pannello già aperto, senza passare da Finestra › Estensioni (precedenti).";
+    $("#bCreaApp").textContent = ci.length ? (SU_MAC ? "Ricrea l'app" : "Ricrea il collegamento") : (SU_MAC ? "Crea l'app" : "Crea il collegamento");
+    $("#bCreaApp").classList.toggle("primario", !ci.length);
+    $("#bMostraApp").hidden = !ci.length;
+    $("#statoApp").textContent = msg || (ci.length ? "C'è già: " + ci.join(", ") + "." : "Non ancora creata su questo computer.");
+  }
+  async function creaApp(dove) {
+    const b = $("#bCreaApp");
+    b.disabled = true;
+    try {
+      const fatti = await D.creaApp(Ponte.estensione);
+      S.appProposta = true; salva();
+      const m = (SU_MAC ? "Fatto: " + (fatti[fatti.length - 1] || "") + ". Trascinala nel Dock per averla sempre a portata di mano."
+        : "Fatto: " + fatti.join(", ") + ".") + " Se Photoshop era già aperto quando hai installato questa versione, chiudilo e riaprilo una volta.";
+      disegnaApp(m);
+      if (dove) dove.innerHTML = `<b>${SU_MAC ? "App creata." : "Collegamento creato."}</b> ${esc(m)}`;
+    } catch (e) {
+      disegnaApp("Non riuscito: " + e.message);
+      if (dove) dove.innerHTML = `<b>Non riuscito.</b> ${esc(e.message)}`;
+    } finally { b.disabled = false; }
+  }
+  $("#bCreaApp").addEventListener("click", () => creaApp(null));
+  $("#bMostraApp").addEventListener("click", () => { const ci = D.statoApp(); if (ci.length) D.mostra(ci[0], true); });
+  // Aperto dall'app: si conferma all'estensione «avvio» cancellando la sua richiesta, così non riprova (js/avvio.js).
+  const RICHIESTA_APERTURA = D.unisci(D.cartellaDati(), "apri-pannello.richiesto");
+  setInterval(() => { if (D.esiste(RICHIESTA_APERTURA)) D.elimina(RICHIESTA_APERTURA); }, 1000);
+  function proponiApp() {                                   // una volta sola, a chi ha aggiornato senza l'installatore
+    if (S.appProposta || !D.statoApp || !Ponte.estensione || D.statoApp().length) return;
+    const box = $("#novitaApp");
+    box.innerHTML = `<b>Novità: BORIN Batch si apre come un'app.</b> ${SU_MAC ? "Un'icona in Applicazioni" : "Un collegamento sul desktop"} apre Photoshop con questo pannello già pronto.` +
+      `<div class="riga" style="margin-bottom:0"><button class="pulsante primario" id="bNovitaApp">${SU_MAC ? "Crea l'app" : "Crea il collegamento"}</button>` +
+      `<button class="pulsante leggero" id="bNovitaNo">No, grazie</button></div>`;
+    box.hidden = false;
+    $("#bNovitaNo").onclick = () => { S.appProposta = true; salva(); box.hidden = true; };
+    $("#bNovitaApp").onclick = () => creaApp(box);
+  }
+
   // ------------------------------------------------------------------ info e diagnostica
   function gothamCaricato() { try { return document.fonts.check("500 12px 'Gotham BORIN'"); } catch (e) { return false; } }
   function righeDiagnostica() {
@@ -987,7 +1317,7 @@
   $$(".schede button").forEach(b => b.addEventListener("click", () => {
     $$(".schede button").forEach(x => x.setAttribute("aria-selected", String(x === b)));
     $$(".scheda").forEach(s => s.classList.toggle("attiva", s.id === "s-" + b.dataset.scheda));
-    if (b.dataset.scheda === "info") disegnaDiagnostica();
+    if (b.dataset.scheda === "info") { disegnaDiagnostica(); disegnaApp(); }
     if (b.dataset.scheda === "registro") disegnaSessioni();
     $("#contenuto").scrollTop = 0;
   }));
@@ -996,17 +1326,24 @@
   carica();
   disegnaStiliOmbra();
   mostraCartelle();
-  if (S.sorgente === "CARTELLA") leggiFile();
+  if (S.sorgente !== "DOCUMENTI") leggiFile();
   aggiorna();
   mostraRipresa();
   disegnaSessioni();
   collega().then(() => {
     if (S.sorgente === "DOCUMENTI") leggiDocumenti();
     controllaAggiornamenti(false);
+    proponiApp();
     // agganci per i collaudi fuori da Photoshop
     if (window.BORIN_SCHEDA) { const b = $(`.schede [data-scheda="${window.BORIN_SCHEDA}"]`); if (b) b.click(); }
     if (window.BORIN_AZIONE === "prova") esegui({ prova: true });
     if (window.BORIN_AZIONE === "batch") esegui({});
+    if (window.BORIN_AZIONE === "rilascio") {               // collaudo: le due zone come durante un trascinamento
+      $("#rilascioQuanti").textContent = "Rilascia 3 elementi";
+      $("#rilascioUscita").textContent = S.uscita ? "Adesso: " + D.nomeDi(S.uscita) : "Rilascia qui una cartella";
+      velo.hidden = false;
+      $(`#rilascio [data-zona="immagini"]`).classList.add("sopra");
+    }
   });
-  window.BORIN_PANNELLO = { S, aggiorna, esegui, usaPreset, leggiFile, mostraCartelle };
+  window.BORIN_PANNELLO = { S, aggiorna, esegui, usaPreset, leggiFile, mostraCartelle, rilasciati, aggiungiScelti };
 })();

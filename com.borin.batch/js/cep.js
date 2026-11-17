@@ -87,6 +87,14 @@
       }
       return finto && finto.scegliCartella ? finto.scegliCartella(titolo) : null;
     },
+    scegliFiles(titolo, iniziale, tipi) {                 // più file insieme («Alcuni file › Aggiungi…»)
+      if (window.cep && window.cep.fs) {
+        const r = window.cep.fs.showOpenDialogEx(true, false, titolo, iniziale || "", tipi || []);
+        return r && r.data && r.data.length ? r.data.map(percorsoDaURL) : [];
+      }
+      return finto && finto.scegliFiles ? finto.scegliFiles(titolo) : [];
+    },
+    percorsoDaURL,
     scegliFile(titolo, iniziale, tipi) {
       if (window.cep && window.cep.fs) {
         const r = window.cep.fs.showOpenDialogEx(false, false, titolo, iniziale || "", tipi || []);
@@ -107,7 +115,7 @@
     }
   };
 
-  const VERSIONE_MOTORE = "8.0.4";
+  const VERSIONE_MOTORE = "8.1.0";
   if (cep) {
     try { Ponte.estensione = percorsoDaURL(cep.getSystemPath("extension")); } catch (e) {}
   } else if (finto && finto.estensione) Ponte.estensione = finto.estensione;

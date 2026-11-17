@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- BORIN Batch 8 · pannello HTML (CEP) per Photoshop 2022 e successivi, Mac e Windows. -->
-<ExtensionManifest Version="7.0" ExtensionBundleId="com.borin.batch" ExtensionBundleVersion="8.0.4" ExtensionBundleName="BORIN Batch"
+<ExtensionManifest Version="7.0" ExtensionBundleId="com.borin.batch" ExtensionBundleVersion="8.1.0" ExtensionBundleName="BORIN Batch"
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
-    <Extension Id="com.borin.batch.pannello" Version="8.0.4"/>
+    <Extension Id="com.borin.batch.pannello" Version="8.1.0"/>
+    <Extension Id="com.borin.batch.avvio" Version="8.1.0"/>
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>
@@ -54,6 +55,35 @@
             <Icon Type="DarkNormal">./img/icona.png</Icon>
             <Icon Type="DarkRollOver">./img/icona.png</Icon>
           </Icons>
+        </UI>
+      </DispatchInfo>
+    </Extension>
+    <!-- Invisibile: parte con Photoshop e apre il pannello quando l'app «BORIN Batch» lo chiede (js/avvio.js). -->
+    <Extension Id="com.borin.batch.avvio">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./avvio.html</MainPath>
+          <CEFCommandLine>
+            <Parameter>--enable-nodejs</Parameter>
+            <Parameter>--mixed-context</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>false</AutoVisible>
+          <StartOn>
+            <Event>applicationActivate</Event>
+            <Event>com.adobe.csxs.events.ApplicationActivate</Event>
+            <Event>com.adobe.csxs.events.ApplicationInitialized</Event>
+          </StartOn>
+        </Lifecycle>
+        <UI>
+          <Type>Custom</Type>
+          <Geometry>
+            <Size>
+              <Height>1</Height>
+              <Width>1</Width>
+            </Size>
+          </Geometry>
         </UI>
       </DispatchInfo>
     </Extension>

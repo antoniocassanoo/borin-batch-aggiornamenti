@@ -19,7 +19,7 @@
       correzioneY: 40, margine: 16, adatta: 100, qualita: "AUTO"
     },
     ombra: {
-      attiva: true, stile: "STANDARD", intensita: 100, unisci: true,
+      attiva: true, stile: "STANDARD", intensita: 100, unisci: true, segui: true,
       nomeLivello: "Ombra_Adattiva_Unificata", appoggioReale: false, sogliaAlpha: 50, togliResidui: true
     },
     colore: {
@@ -32,7 +32,7 @@
       jpgQualita: 10, jpgLato: 0, pngLato: 0, webpLato: 0,
       webpQualita: 80, webpLossless: false, webpMotore: "PHOTOSHOP", cwebp: "",
       sfondoBiancoPSD: false, sfondoBiancoPNG: false, sfondoBiancoWebP: false,
-      webSRGB: true, struttura: "PRODOTTO", raccoltaWebP: true, esistenti: "SOVRASCRIVI", suffisso: ""
+      webSRGB: true, struttura: "FORMATO", raccoltaWebP: true, esistenti: "SOVRASCRIVI", suffisso: ""
     },
     avvio: { sottocartelle: false, apriCartellaFine: false, suono: true }
   };
@@ -50,7 +50,8 @@
   const PRESET = [
     { id: "auto", nome: "Automatico BORIN", nota: "Decide file per file: scontorno per le foto, livelli conservati per i PSD.", modifiche: {} },
     { id: "v3", nome: "Come il vecchio script", nota: "Come lo script guidato v3: scontorno AI su tutto, solo il livello attivo.",
-      modifiche: { preparazione: { modo: "CUTOUT" }, livelli: { gestione: "ACTIVE", escludiOmbre: false, escludiSfondi: false } } },
+      modifiche: { preparazione: { modo: "CUTOUT" }, livelli: { gestione: "ACTIVE", escludiOmbre: false, escludiSfondi: false }, ombra: { segui: false },
+        export: { struttura: "PRODOTTO" } } },
     { id: "scontornare", nome: "Foto da scontornare", nota: "Scontorno AI su ogni file.", modifiche: { preparazione: { modo: "CUTOUT" } } },
     { id: "scontornata", nome: "Già scontornata", nota: "PNG o PSD già senza sfondo: niente scontorno.",
       modifiche: { preparazione: { modo: "PRECUT" }, livelli: { gestione: "ACTIVE" } } },

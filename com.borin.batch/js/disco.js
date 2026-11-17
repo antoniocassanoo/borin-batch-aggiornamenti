@@ -195,14 +195,26 @@
     if (RISERVATI.test(n)) n = "_" + n;
     return n;
   }
+  // Quattro modi di ordinare le uscite (Impostazioni › Export e scheda Lavoro):
+  //   FORMATO       JPG/foto.jpg, PNG/foto.png, PSD/…, WEBP/…  (le sottocartelle dell'ingresso restano sotto ogni formato)
+  //   PER_PRODOTTO  foto/foto.jpg, foto/foto.png…               (una cartella per immagine, con tutti i formati)
+  //   UNICA         foto.jpg, foto.png…                         (tutto nella cartella scelta, sottocartelle comprese)
+  //   PRODOTTO      Immagini singole cartelle/foto/JPG/foto.jpg… più la copia in «Immagini WEBP» (come il v3)
+  const STRUTTURE = ["FORMATO", "PER_PRODOTTO", "UNICA", "PRODOTTO"];
+  function struttura(E) { return STRUTTURE.includes(E.struttura) ? E.struttura : "FORMATO"; }
   function percorsiUscita(cfg, radice, rel, base, nome) {
-    const E = cfg.export, P = {};
-    if (E.struttura === "FORMATO") {
-      const sotto = rel || "";
+    const E = cfg.export, P = {}, st = struttura(E), sotto = rel || "";
+    if (st === "FORMATO") {
       if (E.psd) P.psd = path.join(radice, "PSD", sotto, nome + ".psd");
       if (E.jpg) P.jpg = path.join(radice, "JPG", sotto, nome + ".jpg");
       if (E.png) P.png = path.join(radice, "PNG", sotto, nome + ".png");
       if (E.webp) P.webp = path.join(radice, "WEBP", sotto, nome + ".webp");
+    } else if (st === "PER_PRODOTTO" || st === "UNICA") {
+      const c = st === "UNICA" ? path.join(radice, sotto) : path.join(radice, sotto, base);
+      if (E.psd) P.psd = path.join(c, nome + ".psd");
+      if (E.jpg) P.jpg = path.join(c, nome + ".jpg");
+      if (E.png) P.png = path.join(c, nome + ".png");
+      if (E.webp) P.webp = path.join(c, nome + ".webp");
     } else {
       const c = path.join(radice, "Immagini singole cartelle", base);
       if (E.psd) P.psd = path.join(c, "PSD", nome + ".psd");
@@ -221,32 +233,68 @@
     (P.webpCopie || []).forEach(x => l.push(x));
     return l;
   }
+  const chiavePercorso = p => (WIN || process.platform === "darwin" ? path.resolve(p).toLowerCase() : path.resolve(p));
   // Un lavoro per file: nome di base unico (foto.jpg e foto.png non si sovrascrivono), percorsi, salto o versione.
+  // Nessuna uscita può cadere sopra un file di partenza (con «Tutti insieme» e l'uscita nella cartella delle foto
+  // succederebbe): in quel caso il nome prende «_BORIN».
   function pianifica(file, cfg, radice) {
-    const E = cfg.export, conta = {}, usati = {}, lavori = [];
-    const chiave = f => ((E.struttura === "FORMATO" ? f.rel + "/" : "") + nomeSicuro(path.parse(f.nome).name)).toLowerCase();
-    file.forEach(f => { const k = chiave(f); conta[k] = (conta[k] || 0) + 1; });
+    const E = cfg.export, st = struttura(E), conta = {}, usati = {}, lavori = [];
+    const ingressi = new Set(file.filter(f => f.percorso).map(f => chiavePercorso(f.percorso)));
+    const conRel = st !== "PRODOTTO";                     // nelle strutture che tengono le sottocartelle il nome basta per cartella
+    const chiave = (f, b) => ((conRel ? (f.rel || "") + "/" : "") + b).toLowerCase();
+    file.forEach(f => { const k = chiave(f, nomeSicuro(path.parse(f.nome).name)); conta[k] = (conta[k] || 0) + 1; });
     for (const f of file) {
-      let base = nomeSicuro(path.parse(f.nome).name);
-      if (conta[chiave(f)] > 1) base += "_" + f.ext.toUpperCase();
+      const originale = nomeSicuro(path.parse(f.nome).name);
+      let base = originale;
+      if (conta[chiave(f, base)] > 1) base += "_" + f.ext.toUpperCase();
       let prova = base, n = 2;
-      while (usati[((E.struttura === "FORMATO" ? f.rel + "/" : "") + prova).toLowerCase()]) prova = base + "_" + n++;
+      while (usati[chiave(f, prova)]) prova = base + "_" + n++;
       base = prova;
-      usati[((E.struttura === "FORMATO" ? f.rel + "/" : "") + base).toLowerCase()] = true;
+      usati[chiave(f, base)] = true;
       const suff = E.suffisso ? nomeSicuro(E.suffisso) : "";
-      let nome = base + suff, P = percorsiUscita(cfg, radice, f.rel, base, nome);
+      let nome = base + suff, P = percorsiUscita(cfg, radice, f.rel, base, nome), protetto = false;
+      if (tuttiIPercorsi(P).some(p => ingressi.has(chiavePercorso(p)))) {
+        nome = base + suff + "_BORIN"; P = percorsiUscita(cfg, radice, f.rel, base, nome); protetto = true;
+      }
       const tutti = tuttiIPercorsi(P), esistenti = tutti.filter(esiste);
       let salta = false, versione = null;
       if (E.esistenti === "SALTA" && tutti.length && esistenti.length === tutti.length) salta = true;
       else if (E.esistenti === "VERSIONE" && esistenti.length) {
         let v = 2;
-        do { nome = base + suff + "_" + String(v).padStart(2, "0"); P = percorsiUscita(cfg, radice, f.rel, base, nome); v++; }
+        const radiceNome = nome;
+        do { nome = radiceNome + "_" + String(v).padStart(2, "0"); P = percorsiUscita(cfg, radice, f.rel, base, nome); v++; }
         while (tuttiIPercorsi(P).some(esiste) && v < 1000);
         versione = nome;
       }
-      lavori.push({ file: f, base, nome, uscite: P, salta, versione, rinominato: base !== nomeSicuro(path.parse(f.nome).name) });
+      lavori.push({ file: f, base, nome, uscite: P, salta, versione, protetto, rinominato: base !== originale });
     }
     return lavori;
+  }
+
+  // ------------------------------------------------------------ file e cartelle trascinati o scelti uno per uno
+  const SUPPORTATI = new Set(ESTENSIONI);
+  function eCartella(p) { try { return fs.statSync(p).isDirectory(); } catch (e) { return false; } }
+  function supportato(p) { return SUPPORTATI.has(path.extname(String(p)).slice(1).toLowerCase()); }
+  function infoFile(p, rel) {
+    let st;
+    try { st = fs.statSync(p); } catch (e) { return null; }
+    if (!st.isFile() || !supportato(p)) return null;
+    const nome = path.basename(p), ext = path.extname(nome).slice(1).toLowerCase();
+    return { percorso: p, nome, rel: rel || "", ext: ext === "jpeg" ? "jpg" : ext === "tiff" ? "tif" : ext, byte: st.size };
+  }
+  // Elenco da file e cartelle scelti: le cartelle portano il loro nome come sottocartella (così due cartelle con
+  // foto dallo stesso nome non si scontrano), i doppioni si tolgono.
+  function elencaScelti(percorsi, opz) {
+    opz = opz || {};
+    const out = [], visti = new Set();
+    const metti = f => { const k = chiavePercorso(f.percorso); if (!visti.has(k)) { visti.add(k); out.push(f); } };
+    for (const p of percorsi || []) {
+      if (eCartella(p)) {
+        const nome = nomeSicuro(path.basename(p));
+        elencaImmagini(p, opz).forEach(f => metti(Object.assign(f, { rel: f.rel ? path.join(nome, f.rel) : nome })));
+      } else { const f = infoFile(p); if (f) metti(f); }
+    }
+    return out;
   }
 
   // Controlla le uscite scritte: esistono, misure giuste, trasparenza dove serve.
@@ -343,6 +391,29 @@
     return "file://" + (s.startsWith("/") ? "" : "/") + s.split("/").map(encodeURIComponent).join("/").replace(/^\/([A-Za-z])%3A/, "/$1:");
   }
 
+  // ------------------------------------------------------------ l'app «BORIN Batch» (Mac) o il collegamento (Windows)
+  // Aprono Photoshop con il pannello già aperto: li crea lo script in <estensione>/avvio, lo stesso dell'installatore.
+  function percorsiApp() {
+    if (WIN) {
+      const ad = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
+      return [path.join(ad, "Microsoft", "Windows", "Start Menu", "Programs", "BORIN Batch.lnk"), path.join(os.homedir(), "Desktop", "BORIN Batch.lnk"),
+        path.join(os.homedir(), "OneDrive", "Desktop", "BORIN Batch.lnk")];
+    }
+    return ["/Applications/BORIN Batch.app", path.join(os.homedir(), "Applications", "BORIN Batch.app")];
+  }
+  function statoApp() { return percorsiApp().filter(esiste); }
+  function creaApp(estensione) {
+    const dir = path.join(estensione, "avvio");
+    const [exe, arg] = WIN ? ["powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(dir, "crea_collegamento.ps1")]]
+      : ["/bin/bash", [path.join(dir, "crea_app_mac.sh")]];
+    return new Promise((ok, ko) => {
+      cp.execFile(exe, arg, { windowsHide: true, timeout: 60000 }, (err, so, se) => {
+        if (err) return ko(new Error(String(se || err.message).trim() || "creazione non riuscita"));
+        ok(String(so).split(/\r?\n/).map(x => x.trim()).filter(Boolean));
+      });
+    });
+  }
+
   function copiaFile(da, a) { creaCartella(path.dirname(a)); fs.copyFileSync(da, a); }
   function elimina(p) { try { fs.unlinkSync(p); } catch (e) {} }
   function aggiungiTesto(file, testo) { try { creaCartella(path.dirname(file)); fs.appendFileSync(file, testo, "utf8"); } catch (e) {} }
@@ -353,9 +424,11 @@
 
   const API = {
     unisci: (...p) => path.join(...p), cartellaDi: p => path.dirname(p), nomeDi: p => path.basename(p),
+    relativo: (da, a) => path.relative(da, a),
     copiaFile, elimina, aggiungiTesto, sistema,
     ESTENSIONI, WIN, cartellaDati, cartellaTemp, leggiJSON, scriviJSON, esiste, creaCartella, stessoPercorso, dentro,
     elencaImmagini, intestazione, previsione, nomeSicuro, pianifica, tuttiIPercorsi, verificaUscite,
+    STRUTTURE, struttura, eCartella, supportato, infoFile, elencaScelti, statoApp, creaApp,
     trovaCwebp, eseguiCwebp, scriviRegistro, mostra, avvisoSistema, urlFile, dataOra
   };
   if (typeof window !== "undefined") window.BORIN_DISCO = API;

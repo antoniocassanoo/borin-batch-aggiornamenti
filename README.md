@@ -25,7 +25,7 @@ I due pulsanti scaricano sempre l'ultima versione. Serve Photoshop 2022 (version
    - Mac: doppio clic sullo zip;
    - Windows: clic destro sullo zip › **Estrai tutto**.
 3. **Chiudi Photoshop**. Nella cartella estratta fai doppio clic su **Installa BORIN Batch**. Quando la finestra scrive «Fatto», premi un tasto per chiuderla.
-4. **Apri Photoshop** e scegli **Finestra › Estensioni (precedenti) › BORIN Batch**. Con Photoshop in inglese: Window › Extensions (Legacy) › BORIN Batch.
+4. **Apri l'app BORIN Batch**: sul Mac è in Applicazioni (Launchpad, Spotlight o Dock), su Windows sul desktop e nel menu Start. Apre Photoshop con il pannello già aperto. In alternativa, in Photoshop: **Finestra › Estensioni (precedenti) › BORIN Batch** (in inglese: Window › Extensions (Legacy) › BORIN Batch).
 
 Nella cartella estratta c'è anche la **guida PDF**, con tutte le funzioni del pannello.
 
